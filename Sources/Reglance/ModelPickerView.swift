@@ -206,7 +206,7 @@ private struct ModelPickerOverlay: ViewModifier {
                             .overlay(alignment: .bottomTrailing) {
                                 ModelPickerPanel(model: $model, effort: $effort, onDone: onDone)
                                     .fixedSize()
-                                    .transition(reduceMotion ? .opacity : AnyTransition(PickerContentsReveal()))
+                                    .modifier(PickerContentsReveal())
                             }
                             .clipShape(.rect(cornerRadius: ComposerShape.cornerRadius))
                             .background {
@@ -214,7 +214,9 @@ private struct ModelPickerOverlay: ViewModifier {
                             }
                             .matchedGeometryEffect(id: ModelPickerHero.id, in: namespace)
                     }
-                    .transition(reduceMotion ? .opacity : .identity)
+                    // Not `.identity`: that removes the card at once on close, so it couldn't
+                    // shrink back into the pill.
+                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(PickerCardTransition()))
             }
         }
         .animation(reduceMotion ? .easeOut(duration: 0.10) : BloomMotion.animation, value: isPresented)
@@ -227,13 +229,33 @@ private struct ModelPickerOverlay: ViewModifier {
     }
 }
 
-/// The contents sharpen and fade in as the glass grows around them, with the bloom's blur.
-private struct PickerContentsReveal: Transition {
+/// Keeps the card on screen while its glass grows out of the pill and shrinks back into it.
+/// matchedGeometryEffect moves the glass. The contents fade through the environment, because a
+/// transition on a view inside the card doesn't run when the card is inserted or removed.
+/// Opening, the glass appears at once over the pill; closing, it fades as it shrinks, so it
+/// melts into the pill fading back in instead of vanishing when it lands.
+private struct PickerCardTransition: Transition {
     func body(content: Content, phase: TransitionPhase) -> some View {
         content
-            .blur(radius: phase.isIdentity ? 0 : BloomMotion.startBlur)
-            .opacity(phase.isIdentity ? 1 : 0)
+            .environment(\.pickerContentsShown, phase.isIdentity)
+            .opacity(phase == .didDisappear ? 0 : 1)
     }
+}
+
+/// The contents sharpen and fade in as the glass grows around them, with the bloom's blur,
+/// and blur out as it shrinks back.
+private struct PickerContentsReveal: ViewModifier {
+    @Environment(\.pickerContentsShown) private var shown
+
+    func body(content: Content) -> some View {
+        content
+            .blur(radius: shown ? 0 : BloomMotion.startBlur)
+            .opacity(shown ? 1 : 0)
+    }
+}
+
+private extension EnvironmentValues {
+    @Entry var pickerContentsShown = true
 }
 
 /// Closes the picker on a click anywhere outside the card, like a transient popover.
