@@ -305,10 +305,10 @@ public struct ClaudeClient: ChatStreamingClient {
 
     /// Writing to a pipe whose reader exited (claude quit early or was cancelled) raises
     /// SIGPIPE, which would kill the app. Ignored, the write then just fails.
-    private static let ignoreBrokenPipe: Void = { signal(SIGPIPE, SIG_IGN) }()
+    static let ignoreBrokenPipe: Void = { signal(SIGPIPE, SIG_IGN) }()
 
     /// Pipe data as soon as it's written. (`FileHandle.bytes` buffers, which delays streaming.)
-    private static func chunks(of handle: FileHandle) -> AsyncStream<Data> {
+    static func chunks(of handle: FileHandle) -> AsyncStream<Data> {
         AsyncStream { continuation in
             handle.readabilityHandler = { handle in
                 let data = handle.availableData
@@ -322,7 +322,7 @@ public struct ClaudeClient: ChatStreamingClient {
         }
     }
 
-    private static func readAll(_ handle: FileHandle) async -> String {
+    static func readAll(_ handle: FileHandle) async -> String {
         var data = Data()
         do { for try await byte in handle.bytes { data.append(byte) } } catch {}
         return String(decoding: data, as: UTF8.self)

@@ -9,6 +9,15 @@ public enum AppPaths {
     public static var chats: URL { root.appending(path: "Chats", directoryHint: .isDirectory) }
     /// Neutral cwd for the claude subprocess, so no project files or CLAUDE.md get picked up.
     public static var claudeWorkdir: URL { root.appending(path: "ClaudeWorkdir", directoryHint: .isDirectory) }
+    /// The empty folder a backend's CLI runs in for ordinary chats, so no project files or
+    /// instructions get picked up.
+    public static func workdir(for backend: Backend) -> URL {
+        switch backend {
+        case .claude: claudeWorkdir
+        case .codex: root.appending(path: "CodexWorkdir", directoryHint: .isDirectory)
+        case .opencode: root.appending(path: "OpenCodeWorkdir", directoryHint: .isDirectory)
+        }
+    }
 }
 
 /// Stores each chat as `<id>.json`, and its attachments in the folder `<id>/`.
