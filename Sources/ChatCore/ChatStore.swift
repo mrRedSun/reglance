@@ -1,9 +1,9 @@
 import Foundation
 
-/// Locations under ~/Library/Application Support/Reglance.
+/// Locations under ~/Library/Application Support/Reglance, or the demo folder in demo mode.
 public enum AppPaths {
     public static var root: URL {
-        URL.applicationSupportDirectory.appending(path: "Reglance", directoryHint: .isDirectory)
+        DemoMode.directory ?? URL.applicationSupportDirectory.appending(path: "Reglance", directoryHint: .isDirectory)
     }
     /// One JSON file per chat.
     public static var chats: URL { root.appending(path: "Chats", directoryHint: .isDirectory) }
@@ -26,7 +26,7 @@ public struct ChatStore: Sendable {
         return files
             .filter { $0.pathExtension == "json" }
             .compactMap { try? decoder.decode(Chat.self, from: Data(contentsOf: $0)) }
-            .sorted { $0.updatedAt > $1.updatedAt }
+            .sorted(by: Chat.precedes)
     }
 
     public func save(_ chat: Chat) throws {
@@ -39,6 +39,19 @@ public struct ChatStore: Sendable {
 
     public func fileURL(for id: UUID) -> URL {
         directory.appending(path: "\(id.uuidString).json")
+    }
+
+    /// Deletes only this chat's JSON and attachment copies. CLI sessions are owned by Claude.
+    public func delete(_ id: UUID) throws {
+        let manager = FileManager.default
+        let attachments = directory.appending(path: id.uuidString, directoryHint: .isDirectory)
+        for url in [attachments, fileURL(for: id)] {
+            do {
+                try manager.removeItem(at: url)
+            } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                // Deleting a chat whose files have already gone is safe to repeat.
+            }
+        }
     }
 
     /// Copies a draft into the chat's folder and returns the record that references it.

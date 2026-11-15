@@ -6,16 +6,21 @@ import Observation
 @MainActor
 @Observable
 public final class ChatController {
-    /// Most recently updated first.
+    /// All chats, pinned first, then most recently updated. Includes archived chats.
     public private(set) var chats: [Chat]
+    public var activeChats: [Chat] { chats.filter { !$0.isArchived } }
+    public var archivedChats: [Chat] { chats.filter(\.isArchived) }
     /// Chats with a reply currently streaming.
     public private(set) var streaming: Set<UUID> = []
 
     @ObservationIgnored private let store: ChatStore
-    @ObservationIgnored private let client: ClaudeClient
+    @ObservationIgnored private let client: any ClaudeStreamingClient
     @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var titleTasks: [UUID: Task<Void, Never>] = [:]
+    /// A callback may mutate a chat only while it owns that chat's current reply.
+    @ObservationIgnored private var activeReplies: [UUID: UUID] = [:]
 
-    public init(store: ChatStore = ChatStore(), client: ClaudeClient = ClaudeClient()) {
+    public init(store: ChatStore = ChatStore(), client: any ClaudeStreamingClient = ClaudeClient()) {
         self.store = store
         self.client = client
         self.chats = store.loadAll()
@@ -30,15 +35,54 @@ public final class ChatController {
         id.map(streaming.contains) ?? false
     }
 
+    public func rename(_ chatID: UUID, to title: String) {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        editMetadata(chatID) {
+            $0.title = title
+            $0.titleIsAutomatic = false
+        }
+    }
+
+    public func setPinned(_ pinned: Bool, for chatID: UUID) {
+        editMetadata(chatID) { $0.isPinned = pinned }
+    }
+
+    public func setArchived(_ archived: Bool, for chatID: UUID) {
+        editMetadata(chatID) { $0.isArchived = archived }
+    }
+
+    /// The UI must confirm first. Invalidate callbacks before removing files so a late
+    /// reply cannot recreate the JSON or interfere with another in-flight reply.
+    public func delete(_ chatID: UUID) throws {
+        guard chat(chatID) != nil else { return }
+        cancel(chatID)
+        if let replyID = activeReplies[chatID] {
+            finish(chatID: chatID, replyID: replyID, error: "Stopped")
+        }
+        try store.delete(chatID)
+        chats.removeAll { $0.id == chatID }
+    }
+
+    private func editMetadata(_ chatID: UUID, _ edit: (inout Chat) -> Void) {
+        guard var chat = chat(chatID) else { return }
+        edit(&chat)
+        put(chat)
+    }
+
     /// Sends `text` and `attachments` to an existing chat, or starts a new chat when
-    /// `chatID` is nil. Returns the chat id.
+    /// `chatID` is nil. Returns the chat id. `agentDirectory` only applies to a new chat:
+    /// an existing chat keeps the mode it was created with.
     @discardableResult
-    public func send(_ text: String, attachments: [AttachmentDraft] = [], model: ClaudeModel, to chatID: UUID?) -> UUID {
+    public func send(_ text: String, attachments: [AttachmentDraft] = [], model: ClaudeModel, effort: ClaudeEffort = .automatic,
+                     agentDirectory: URL? = nil, to chatID: UUID?) -> UUID {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        var chat = chat(chatID) ?? Chat(firstMessage: prompt.isEmpty ? attachments.first?.name ?? "" : prompt, model: model)
+        var chat = chat(chatID) ?? Chat(firstMessage: prompt.isEmpty ? attachments.first?.name ?? "" : prompt, model: model,
+                                        agentDirectory: agentDirectory)
         guard !prompt.isEmpty || !attachments.isEmpty, !streaming.contains(chat.id) else { return chat.id }
 
         chat.model = model
+        chat.effort = effort
         var message = Message(role: .user, text: prompt)
         if !attachments.isEmpty {
             // A failed copy surfaces when the reply starts (the file can't be read back).
@@ -66,9 +110,11 @@ public final class ChatController {
     }
 
     /// Replaces the last reply with a new answer to the same question.
-    public func regenerate(_ chatID: UUID) {
+    public func regenerate(_ chatID: UUID, model: ClaudeModel? = nil, effort: ClaudeEffort? = nil) {
         guard var chat = chat(chatID), !streaming.contains(chatID),
               let resume = regenerateSession(of: chat) else { return }
+        if let model { chat.model = model }
+        if let effort { chat.effort = effort }
         chat.messages.removeLast()
         startReply(in: chat, to: chat.messages[chat.messages.count - 1], resume: resume)
     }
@@ -86,12 +132,14 @@ public final class ChatController {
     private func startReply(in chat: Chat, to question: Message, resume: String?) {
         var chat = chat
         let model = chat.model
+        let effort = chat.effort
         chat.messages.append(Message(role: .assistant, text: ""))
         chat.updatedAt = Date()
         let id = chat.id
         let replyID = chat.messages[chat.messages.count - 1].id
         put(chat)
         streaming.insert(id)
+        activeReplies[id] = replyID
 
         let content: [ContentBlock]
         do {
@@ -100,11 +148,12 @@ public final class ChatController {
             finish(chatID: id, replyID: replyID, error: error.localizedDescription)
             return
         }
-        let stream = client.send(content, model: model, resume: resume)
+        let stream = client.send(content, model: model, effort: effort, resume: resume, agentDirectory: chat.agentDirectory)
         tasks[id] = Task { [weak self] in
             var failure: String?
             do {
                 for try await event in stream {
+                    try Task.checkCancellation()
                     self?.apply(event, chatID: id, replyID: replyID)
                 }
                 if Task.isCancelled { failure = "Stopped" }
@@ -127,6 +176,7 @@ public final class ChatController {
     }
 
     private func apply(_ event: ClaudeEvent, chatID: UUID, replyID: UUID) {
+        guard activeReplies[chatID] == replyID else { return }
         update(chatID) { chat in
             guard let index = chat.messages.firstIndex(where: { $0.id == replyID }) else { return }
             switch event {
@@ -156,6 +206,8 @@ public final class ChatController {
     }
 
     private func finish(chatID: UUID, replyID: UUID, error: String?) {
+        guard activeReplies[chatID] == replyID else { return }
+        activeReplies[chatID] = nil
         tasks[chatID] = nil
         streaming.remove(chatID)
         update(chatID) { chat in
@@ -164,7 +216,32 @@ public final class ChatController {
                 chat.messages[index].error = error
             }
         }
-        if let chat = chat(chatID) { persist(chat) }
+        if let chat = chat(chatID) {
+            put(chat)
+            if error == nil { generateTitle(for: chat) }
+        }
+    }
+
+    /// After the first successful reply, replace the first-message title with a generated
+    /// one, unless the person renamed the chat in the meantime.
+    private func generateTitle(for chat: Chat) {
+        guard chat.titleIsAutomatic,
+              chat.messages.count(where: { $0.role == .assistant }) == 1,
+              let question = chat.messages.first(where: { $0.role == .user }),
+              let answer = chat.messages.last, answer.role == .assistant, !answer.text.isEmpty else { return }
+        let id = chat.id
+        let client = client
+        titleTasks[id] = Task { [weak self] in
+            let title = await client.title(question: question.text, answer: answer.text)
+            guard let self, let title, self.chat(id)?.titleIsAutomatic == true else { return }
+            self.titleTasks[id] = nil
+            self.editMetadata(id) { $0.title = title }
+        }
+    }
+
+    /// Waits for a pending generated title (used by tests and the CLI).
+    public func waitForTitle(_ chatID: UUID) async {
+        await titleTasks[chatID]?.value
     }
 
     private func update(_ chatID: UUID, _ body: (inout Chat) -> Void) {
@@ -172,10 +249,11 @@ public final class ChatController {
         body(&chats[index])
     }
 
-    /// Inserts or replaces the chat, moves it to the top, and saves it.
+    /// Inserts or replaces the chat, restores library ordering, and saves it.
     private func put(_ chat: Chat) {
         chats.removeAll { $0.id == chat.id }
-        chats.insert(chat, at: 0)
+        chats.append(chat)
+        chats.sort(by: Chat.precedes)
         persist(chat)
     }
 

@@ -16,6 +16,24 @@ public enum ClaudeModel: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Values accepted by the Claude CLI's `--effort` option. Automatic leaves the CLI default unchanged.
+public enum ClaudeEffort: String, Codable, CaseIterable, Identifiable, Sendable {
+    case automatic, low, medium, high, xhigh, max
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .automatic: "Automatic"
+        case .low: "Low"
+        case .medium: "Medium"
+        case .high: "High"
+        case .xhigh: "Extra high"
+        case .max: "Max"
+        }
+    }
+}
+
 public struct Message: Codable, Identifiable, Equatable, Sendable {
     public enum Role: String, Codable, Sendable { case user, assistant }
 
@@ -32,7 +50,7 @@ public struct Message: Codable, Identifiable, Equatable, Sendable {
     public var thinking: String?
     /// Assistant only: seconds from sending until the first reply text ("Thought for Ns").
     public var thinkingDuration: TimeInterval?
-    /// Assistant only: web searches and page fetches made while answering, in order.
+    /// Assistant only: tool calls made while answering, in order.
     public var toolSteps: [ToolStep]?
     /// User only: files sent with the message.
     public var attachments: [Attachment]?
@@ -48,9 +66,9 @@ public struct Message: Codable, Identifiable, Equatable, Sendable {
 
 /// One tool call shown as progress, e.g. a search query or a fetched URL.
 public struct ToolStep: Codable, Equatable, Sendable {
-    /// `WebSearch` or `WebFetch`.
+    /// The CLI's tool name: `WebSearch` or `WebFetch` in chats, any tool in agent chats.
     public var name: String
-    /// The search query or URL.
+    /// The search query, URL, command or file path.
     public var detail: String
     /// Length of the reply text (UTF-8) when the call started. While the text is still
     /// this long, the tool is running; any text after it means Claude moved on.
@@ -66,22 +84,68 @@ public struct ToolStep: Codable, Equatable, Sendable {
 public struct Chat: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID
     public var title: String
+    /// The title still comes from the app (the first message, then a generated title).
+    /// False once the person renames the chat, so a generated title never overwrites theirs.
+    public var titleIsAutomatic: Bool
     public var createdAt: Date
     public var updatedAt: Date
     /// Claude CLI session id, used with `--resume` for follow-ups.
     public var sessionID: String?
     public var model: ClaudeModel
+    public var effort: ClaudeEffort
+    public var isPinned: Bool
+    public var isArchived: Bool
+    /// Set for agent chats: the folder the CLI runs in, with the normal Claude Code
+    /// environment and permission prompts bypassed. Nil for ordinary chats, which stay
+    /// limited to web search and fetch. Fixed when the chat is created; a CLI session can
+    /// only be resumed from the folder it was created in.
+    public var agentDirectory: URL?
     public var messages: [Message]
 
-    public init(firstMessage: String, model: ClaudeModel) {
+    public var isAgent: Bool { agentDirectory != nil }
+
+    public init(firstMessage: String, model: ClaudeModel, effort: ClaudeEffort = .automatic, agentDirectory: URL? = nil) {
         let now = Date()
         self.id = UUID()
         self.title = Chat.makeTitle(from: firstMessage)
+        self.titleIsAutomatic = true
         self.createdAt = now
         self.updatedAt = now
         self.sessionID = nil
         self.model = model
+        self.effort = effort
+        self.isPinned = false
+        self.isArchived = false
+        self.agentDirectory = agentDirectory
         self.messages = []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, titleIsAutomatic, createdAt, updatedAt, sessionID, model, effort, isPinned, isArchived, agentDirectory, messages
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        // Chats saved before generated titles keep the title they have.
+        titleIsAutomatic = try values.decodeIfPresent(Bool.self, forKey: .titleIsAutomatic) ?? false
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        sessionID = try values.decodeIfPresent(String.self, forKey: .sessionID)
+        model = try values.decode(ClaudeModel.self, forKey: .model)
+        effort = try values.decodeIfPresent(ClaudeEffort.self, forKey: .effort) ?? .automatic
+        isPinned = try values.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        isArchived = try values.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        agentDirectory = try values.decodeIfPresent(URL.self, forKey: .agentDirectory)
+        messages = try values.decode([Message].self, forKey: .messages)
+    }
+
+    /// Stable library ordering, shared by disk loading and in-memory updates.
+    static func precedes(_ lhs: Chat, _ rhs: Chat) -> Bool {
+        if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
+        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     static func makeTitle(from text: String) -> String {

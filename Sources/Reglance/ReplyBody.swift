@@ -7,15 +7,20 @@ import UniformTypeIdentifiers
 /// An assistant reply: markdown with widget cards (design/widgets.md) in between.
 /// Split again on every streamed chunk; finished segments are `Equatable` views, so
 /// SwiftUI only re-renders the one still growing.
+extension EnvironmentValues {
+    @Entry var conversationTextSize: CGFloat = 14.5
+}
+
 struct ReplyBody: View {
     let text: String
     let isStreaming: Bool
+    @Environment(\.conversationTextSize) private var textSize
 
     var body: some View {
         let segments = ReplySegment.split(text, streaming: isStreaming)
         VStack(alignment: .leading, spacing: 10) {
             ForEach(segments.indices, id: \.self) { index in
-                SegmentView(segment: segments[index]).equatable()
+                SegmentView(segment: segments[index], textSize: textSize).equatable()
             }
         }
     }
@@ -23,12 +28,13 @@ struct ReplyBody: View {
 
 private struct SegmentView: View, Equatable {
     let segment: ReplySegment
+    let textSize: CGFloat
 
     var body: some View {
         switch segment {
         case .markdown(let text):
             MarkdownText(text)
-                .font(.system(size: 14.5))
+                .font(.system(size: textSize))
                 .lineSpacing(4)
         case .chart(let spec):
             ChartCard(spec: spec)
@@ -161,11 +167,11 @@ private struct ChartCard: View {
 struct ChartBody: View {
     let spec: ChartSpec
 
-    private static let bar = LinearGradient(colors: [Color(red: 0.49, green: 0.75, blue: 1), .accentBlue.opacity(0.75)],
+    private static let bar = LinearGradient(colors: [Color(red: 0.49, green: 0.75, blue: 1), Color.accentColor.opacity(0.75)],
                                             startPoint: .top, endPoint: .bottom)
     private static let highlight = LinearGradient(colors: [Color(red: 1, green: 0.7, blue: 0.48), Color(red: 1, green: 0.48, blue: 0.35).opacity(0.8)],
                                                   startPoint: .top, endPoint: .bottom)
-    private static let palette: [Color] = [.accentBlue, Color(red: 1, green: 0.48, blue: 0.35), .teal, .purple, .pink, .yellow, .green, .indigo]
+    private static let palette: [Color] = [.accentColor, Color(red: 1, green: 0.48, blue: 0.35), .teal, .purple, .pink, .yellow, .green, .indigo]
 
     var body: some View {
         let hasSeries = !spec.seriesNames.isEmpty
@@ -254,7 +260,7 @@ struct ChartBody: View {
                 LineMark(x: x, y: y).foregroundStyle(by: .value("Series", series))
                     .lineStyle(StrokeStyle(lineWidth: 2))
             } else {
-                LineMark(x: x, y: y).foregroundStyle(Color.accentBlue)
+                LineMark(x: x, y: y).foregroundStyle(Color.accentColor)
                     .lineStyle(StrokeStyle(lineWidth: 2))
                 if point.highlight == true {
                     PointMark(x: x, y: y).foregroundStyle(Self.highlight).symbolSize(60)
@@ -280,7 +286,7 @@ private struct DocumentCard: View {
                                          startPoint: .top, endPoint: .bottom))
                     .frame(width: 34, height: 40)
                     .overlay(alignment: .bottom) {
-                        Text("MD").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Color.accentBlue).padding(.bottom, 5)
+                        Text("MD").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Color.accentColor).padding(.bottom, 5)
                     }
                     .shadow(color: .black.opacity(0.2), radius: 1.5, y: 1)
 

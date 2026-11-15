@@ -3,18 +3,19 @@ import Foundation
 
 // Debug entry point that runs the same ChatController/ClaudeClient path as the app.
 //
-//   reglance-cli ask [--model haiku|sonnet|opus] [--chat <chat-id>] [--attach <path>]… [--stop-after <seconds>] <question>
+//   reglance-cli ask [--model haiku|sonnet|opus] [--effort automatic|low|medium|high|xhigh|max] [--chat <chat-id>] [--agent <folder>] [--attach <path>]… [--stop-after <seconds>] <question>
 //       Streams the reply to stdout and saves the chat like the app does.
+//       --agent starts an agent chat in <folder>: full Claude Code, permission prompts bypassed.
 //       --chat continues an existing chat (uses --resume with its session id).
 //       --attach sends a file (image, PDF, or text) with the question; repeatable.
 //       --stop-after cancels the reply after N seconds, like the stop button.
-//   reglance-cli regenerate <chat-id>
+//   reglance-cli regenerate <chat-id> [--effort automatic|low|medium|high|xhigh|max]
 //       Replaces the chat's last reply with a new one, like the regenerate button.
 //   reglance-cli list
 //       Lists saved chats.
 
 func usage() -> Never {
-    print("usage: reglance-cli ask [--model haiku|sonnet|opus] [--chat <chat-id>] [--attach <path>]… [--stop-after <seconds>] <question>\n       reglance-cli regenerate <chat-id>\n       reglance-cli list")
+    print("usage: reglance-cli ask [--model haiku|sonnet|opus] [--effort automatic|low|medium|high|xhigh|max] [--chat <chat-id>] [--agent <folder>] [--attach <path>]… [--stop-after <seconds>] <question>\n       reglance-cli regenerate <chat-id> [--effort automatic|low|medium|high|xhigh|max]\n       reglance-cli list")
     exit(2)
 }
 
@@ -27,13 +28,15 @@ let controller = ChatController()
 switch command {
 case "list":
     for chat in controller.chats {
-        print("\(chat.id)  \(chat.updatedAt.formatted())  \(chat.model.displayName)  session=\(chat.sessionID ?? "-")  \"\(chat.title)\" (\(chat.messages.count) messages)")
+        print("\(chat.id)  \(chat.updatedAt.formatted())  \(chat.model.displayName)  \(chat.agentDirectory.map { "agent=\($0.path)" } ?? "chat")  session=\(chat.sessionID ?? "-")  \"\(chat.title)\" (\(chat.messages.count) messages)")
     }
 
 case "ask":
-    var model = ClaudeModel.haiku
+    var model: ClaudeModel?
+    var effort: ClaudeEffort?
     var chatID: UUID?
     var stopAfter: Double?
+    var agentDirectory: URL?
     var attachments: [AttachmentDraft] = []
     var words: [String] = []
     while !args.isEmpty {
@@ -42,6 +45,9 @@ case "ask":
         case "--model":
             guard let name = args.first, let m = ClaudeModel.allCases.first(where: { $0.displayName.lowercased() == name }) else { usage() }
             model = m; args.removeFirst()
+        case "--effort":
+            guard let raw = args.first, let value = ClaudeEffort(rawValue: raw) else { usage() }
+            effort = value; args.removeFirst()
         case "--chat":
             guard let raw = args.first, let id = UUID(uuidString: raw), controller.chat(id) != nil else {
                 print("unknown chat id"); exit(1)
@@ -55,6 +61,9 @@ case "ask":
                 print(error.localizedDescription); exit(1)
             }
             args.removeFirst()
+        case "--agent":
+            guard let path = args.first else { usage() }
+            agentDirectory = URL(filePath: path, directoryHint: .isDirectory).standardizedFileURL; args.removeFirst()
         case "--stop-after":
             guard let raw = args.first, let seconds = Double(raw) else { usage() }
             stopAfter = seconds; args.removeFirst()
@@ -64,7 +73,10 @@ case "ask":
     }
     guard !words.isEmpty || !attachments.isEmpty else { usage() }
 
-    let id = controller.send(words.joined(separator: " "), attachments: attachments, model: model, to: chatID)
+    let saved = controller.chat(chatID)
+    let id = controller.send(words.joined(separator: " "), attachments: attachments,
+                             model: model ?? saved?.model ?? .haiku,
+                             effort: effort ?? saved?.effort ?? .automatic, agentDirectory: agentDirectory, to: chatID)
     if let stopAfter {
         Task { try? await Task.sleep(for: .seconds(stopAfter)); controller.cancel(id) }
     }
@@ -72,8 +84,14 @@ case "ask":
 
 case "regenerate":
     guard let raw = args.first, let id = UUID(uuidString: raw) else { usage() }
+    args.removeFirst()
+    var effort: ClaudeEffort?
+    if !args.isEmpty {
+        guard args.count == 2, args[0] == "--effort", let value = ClaudeEffort(rawValue: args[1]) else { usage() }
+        effort = value
+    }
     guard controller.canRegenerate(id) else { print("can't regenerate this chat"); exit(1) }
-    controller.regenerate(id)
+    controller.regenerate(id, effort: effort)
     await streamReply(id)
 
 default:
@@ -92,6 +110,7 @@ default:
         try? await Task.sleep(for: .milliseconds(20))
     }
     await controller.waitForReply(id)
+    await controller.waitForTitle(id) // so a new chat is saved with its generated title
     let chat = controller.chat(id)!
     let reply = chat.messages.last!
     FileHandle.standardOutput.write(Data(reply.text.dropFirst(printed).utf8))

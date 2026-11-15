@@ -34,10 +34,25 @@ public enum ClaudeError: LocalizedError, Equatable, Sendable {
     }
 }
 
+/// Streaming boundary used by the controller, also allowing tests without Claude subprocesses.
+public protocol ClaudeStreamingClient: Sendable {
+    /// `agentDirectory` is nil for an ordinary chat; otherwise the turn runs as an agent in that folder.
+    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?,
+              agentDirectory: URL?) -> AsyncThrowingStream<ClaudeEvent, Error>
+    /// A short title for a new chat, or nil if none could be made.
+    func title(question: String, answer: String) async -> String?
+}
+
+public extension ClaudeStreamingClient {
+    func title(question: String, answer: String) async -> String? { nil }
+}
+
 /// Runs one `claude -p` subprocess per message and streams the reply.
-/// User settings, MCP servers and slash commands are disabled, and the only tools are
-/// web search and web fetch, so the CLI behaves as a chat model that can read the web.
-public struct ClaudeClient: Sendable {
+/// In a chat, user settings, MCP servers and slash commands are disabled, and the only
+/// tools are web search and web fetch, so the CLI behaves as a chat model that can read
+/// the web. In an agent chat, the CLI runs as it normally would in the chosen folder,
+/// with permission prompts bypassed.
+public struct ClaudeClient: ClaudeStreamingClient {
     /// WebSearch runs on Anthropic's servers; WebFetch downloads a page and summarises it.
     /// Neither can change anything on the Mac.
     public static let tools = "WebSearch,WebFetch"
@@ -48,25 +63,102 @@ public struct ClaudeClient: Sendable {
         self.workingDirectory = workingDirectory
     }
 
-    public static func arguments(model: ClaudeModel, resume sessionID: String?) -> [String] {
+    public static func arguments(model: ClaudeModel, effort: ClaudeEffort = .automatic, resume sessionID: String?,
+                                 agent: Bool = false) -> [String] {
         var args = [
             "-p",                            // the message comes from stdin (see `userMessageLine`)
             "--input-format", "stream-json", // so it can carry images and documents
-            "--system-prompt", SystemPrompt.make(),
-            "--tools", tools,
-            "--allowedTools", tools,         // print mode can't ask for permission
-            "--setting-sources", "",
-            "--strict-mcp-config",
-            "--disable-slash-commands",
+        ]
+        if agent {
+            // Claude Code's own system prompt, settings, CLAUDE.md, skills, hooks, plugins
+            // and MCP servers, plus the widget instructions. Print mode can't ask for
+            // permission, so the person opted in to bypassing it.
+            args += [
+                "--append-system-prompt", SystemPrompt.agentAppendix,
+                "--permission-mode", "bypassPermissions",
+            ]
+        } else {
+            args += [
+                "--system-prompt", SystemPrompt.make(),
+                "--tools", tools,
+                "--allowedTools", tools,     // print mode can't ask for permission
+                "--setting-sources", "",
+                "--strict-mcp-config",
+                "--disable-slash-commands",
+            ]
+        }
+        args += [
             "--model", model.rawValue,
             "--output-format", "stream-json",
             "--verbose",                     // required by stream-json in print mode
             "--include-partial-messages",    // token-level text deltas
         ]
+        if effort != .automatic { args += ["--effort", effort.rawValue] }
         // Fork so every turn gets its own session id and earlier ids stay unchanged.
         // Regenerate resumes the id from before the last turn.
         if let sessionID { args += ["--resume", sessionID, "--fork-session"] }
         return args
+    }
+
+    /// Headless `claude -p` sessions get no title (only interactive ones do), so a title
+    /// is a separate, tool-free Haiku request that isn't saved as a session.
+    public static let titleArguments: [String] = [
+        "-p",
+        "--system-prompt", """
+            You name chat conversations. Reply with only a title of 2 to 6 words that says \
+            what the conversation is about, in the language of the question. Sentence case. \
+            No quotes, no trailing punctuation, no emoji.
+            """,
+        "--tools", "",
+        "--setting-sources", "",
+        "--strict-mcp-config",
+        "--disable-slash-commands",
+        "--no-session-persistence",
+        "--model", ClaudeModel.haiku.rawValue,
+        "--output-format", "text",
+    ]
+
+    /// Trims a model reply to one plain line, or nil when it's empty.
+    public static func cleanTitle(_ output: String) -> String? {
+        let line = output.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let title = line.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\"'“”‘’.#*")))
+        guard !title.isEmpty else { return nil }
+        return title.count > 60 ? String(title.prefix(60)) + "…" : title
+    }
+
+    public func title(question: String, answer: String) async -> String? {
+        let prompt = "Question:\n\(question.prefix(1500))\n\nStart of the answer:\n\(answer.prefix(1500))"
+        return await Task.detached {
+            guard let executable = ClaudeLocator.executableURL() else { return nil }
+            try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+            let process = Self.process(executable: executable, arguments: Self.titleArguments,
+                                       workingDirectory: workingDirectory)
+            let stdin = Pipe(), stdout = Pipe()
+            process.standardInput = stdin
+            process.standardOutput = stdout
+            process.standardError = FileHandle.nullDevice
+            do { try process.run() } catch { return nil }
+            _ = Self.ignoreBrokenPipe
+            try? stdin.fileHandleForWriting.write(contentsOf: Data(prompt.utf8))
+            try? stdin.fileHandleForWriting.close()
+            let output = await Self.readAll(stdout.fileHandleForReading)
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return Self.cleanTitle(output)
+        }.value
+    }
+
+    /// A `claude` process with a PATH that can find `node` (GUI apps get a minimal PATH).
+    private static func process(executable: URL, arguments: [String], workingDirectory: URL) -> Process {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.currentDirectoryURL = workingDirectory
+        var environment = ProcessInfo.processInfo.environment
+        let extraPath = [executable.deletingLastPathComponent().path, "/opt/homebrew/bin", "/usr/local/bin"]
+        environment["PATH"] = (extraPath + [environment["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
+        process.environment = environment
+        return process
     }
 
     /// One `--input-format stream-json` user message, newline-terminated.
@@ -90,11 +182,13 @@ public struct ClaudeClient: Sendable {
     }
 
     /// Cancelling the consuming task (or dropping the stream) terminates the subprocess.
-    public func send(_ content: [ContentBlock], model: ClaudeModel, resume sessionID: String?) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    public func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort = .automatic, resume sessionID: String?,
+                     agentDirectory: URL? = nil) -> AsyncThrowingStream<ClaudeEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task.detached {
                 do {
-                    try await run(content: content, model: model, resume: sessionID, continuation: continuation)
+                    try await run(content: content, model: model, effort: effort, resume: sessionID,
+                                  agentDirectory: agentDirectory, continuation: continuation)
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -105,21 +199,24 @@ public struct ClaudeClient: Sendable {
     }
 
     private func run(
-        content: [ContentBlock], model: ClaudeModel, resume sessionID: String?,
-        continuation: AsyncThrowingStream<ClaudeEvent, Error>.Continuation
+        content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?,
+        agentDirectory: URL?, continuation: AsyncThrowingStream<ClaudeEvent, Error>.Continuation
     ) async throws {
         guard let executable = ClaudeLocator.executableURL() else { throw ClaudeError.cliNotFound }
-        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        let directory: URL
+        if let agentDirectory {
+            // Never create or substitute the person's folder; a missing one is an error.
+            guard (try? agentDirectory.checkResourceIsReachable()) == true else {
+                throw ClaudeError.failed("The agent folder \(agentDirectory.path) no longer exists.")
+            }
+            directory = agentDirectory
+        } else {
+            try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+            directory = workingDirectory
+        }
 
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = Self.arguments(model: model, resume: sessionID)
-        process.currentDirectoryURL = workingDirectory
-        var environment = ProcessInfo.processInfo.environment
-        // npm installs need `node` on PATH; GUI apps get a minimal PATH.
-        let extraPath = [executable.deletingLastPathComponent().path, "/opt/homebrew/bin", "/usr/local/bin"]
-        environment["PATH"] = (extraPath + [environment["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
-        process.environment = environment
+        let arguments = Self.arguments(model: model, effort: effort, resume: sessionID, agent: agentDirectory != nil)
+        let process = Self.process(executable: executable, arguments: arguments, workingDirectory: directory)
 
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
@@ -206,6 +303,16 @@ public struct StreamParser: Sendable {
 
     public init() {}
 
+    /// The most telling input of a tool call: a search query, URL, shell command or path.
+    static func toolDetail(_ input: [String: Any]) -> String {
+        for key in ["query", "url", "command", "file_path", "notebook_path", "pattern", "path", "description", "prompt"] {
+            if let value = input[key] as? String, !value.isEmpty {
+                return value.split(whereSeparator: \.isNewline).first.map(String.init) ?? value
+            }
+        }
+        return ""
+    }
+
     public mutating func consume(_ line: String) -> [ClaudeEvent] {
         guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
               let type = object["type"] as? String else { return [] }
@@ -224,8 +331,7 @@ public struct StreamParser: Sendable {
                 guard ["tool_use", "server_tool_use"].contains(block["type"] as? String),
                       let name = block["name"] as? String else { return nil }
                 let input = block["input"] as? [String: Any] ?? [:]
-                let detail = (input["query"] ?? input["url"]) as? String ?? ""
-                return .tool(name: name == "web_search" ? "WebSearch" : name, detail: detail)
+                return .tool(name: name == "web_search" ? "WebSearch" : name, detail: Self.toolDetail(input))
             }
 
         case "stream_event":

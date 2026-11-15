@@ -5,82 +5,87 @@ import SwiftUI
 /// The floating panel's expanded state (design/chat-view.html): header, scrolling
 /// messages, and the prompt bar docked at the bottom. The panel grows upward from the bar.
 struct ReplyView<Bar: View>: View {
-    let chat: Chat
+    let chat: Chat?
     let isStreaming: Bool
     let canRegenerate: Bool
-    /// For the history menu, most recent first.
-    let recentChats: [Chat]
-    var onSelectChat: (UUID) -> Void
     var onNewChat: () -> Void
     var onOpenInWindow: () -> Void
     var onClose: () -> Void
     var onRegenerate: () -> Void
     @ViewBuilder var bar: Bar
 
-    @State private var contentHeight: CGFloat = 0
-    /// Messages scroll beyond this height (the design's `.scroll { max-height }`).
-    private let maxScrollHeight: CGFloat = 470
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The message area opens at this fixed height so even short chats have room to read.
+    private let scrollHeight: CGFloat = 470
 
     var body: some View {
+        let messagesHeight = scrollHeight
         VStack(spacing: 0) {
-            header
+            // The composer remains the same child before and after the first send.
+            // Only the content above it is inserted; the glass is never swapped out.
+            if let chat {
+                header(chat)
+                    .transition(.opacity)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(chat.messages) { message in
-                        MessageView(
-                            message: message,
-                            isStreaming: isStreaming && message.id == chat.messages.last?.id,
-                            isLast: message.id == chat.messages.last?.id,
-                            canRegenerate: canRegenerate,
-                            onRegenerate: onRegenerate
-                        )
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(chat.messages) { message in
+                            MessageView(
+                                message: message,
+                                isStreaming: isStreaming && message.id == chat.messages.last?.id,
+                                isLast: message.id == chat.messages.last?.id,
+                                canRegenerate: canRegenerate,
+                                onRegenerate: onRegenerate
+                            )
+                        }
+                    }
+                    .padding(EdgeInsets(top: 6, leading: 16, bottom: 14, trailing: 16))
+                    // Short chats start at the top; longer ones stay scrolled to the latest.
+                    .frame(maxWidth: .infinity, minHeight: messagesHeight, alignment: .topLeading)
+                }
+                .scrollIndicators(.hidden)
+                .defaultScrollAnchor(.bottom)
+                .defaultScrollAnchor(.bottom, for: .sizeChanges)
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: messagesHeight)
+                .mask {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
+                        Rectangle()
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 10)
                     }
                 }
-                .padding(EdgeInsets(top: 6, leading: 16, bottom: 14, trailing: 16))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
-            }
-            .scrollIndicators(.hidden)
-            .defaultScrollAnchor(.bottom)
-            .defaultScrollAnchor(.bottom, for: .sizeChanges)
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(height: min(max(contentHeight, 1), maxScrollHeight))
-            .mask {
-                VStack(spacing: 0) {
-                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
-                    Rectangle()
-                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 10)
-                }
+                .transition(.opacity)
             }
 
-            bar.padding(EdgeInsets(top: 0, leading: 7, bottom: 7, trailing: 7))
+            bar.padding(chat == nil ? EdgeInsets()
+                        : EdgeInsets(top: 0, leading: ComposerShape.dockInset,
+                                     bottom: ComposerShape.dockInset, trailing: ComposerShape.dockInset))
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        // Any empty glass (header, edges, gaps around the composer) moves the panel.
+        .background { WindowDragRegion() }
+        .glassEffect(.regular, in: .rect(cornerRadius: chat == nil ? ComposerShape.cornerRadius : ComposerShape.panelCornerRadius))
+        .overlay {
+            if chat?.isAgent == true {
+                RoundedRectangle(cornerRadius: ComposerShape.panelCornerRadius)
+                    .strokeBorder(AgentMode.color, lineWidth: 1.5)
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.40, dampingFraction: 0.82), value: chat != nil)
     }
 
-    private var header: some View {
+    private func header(_ chat: Chat) -> some View {
         HStack(spacing: 2) {
+            if chat.isAgent {
+                AgentModeBadge().padding(.trailing, 6)
+            }
             Text(chat.title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            Menu {
-                ForEach(recentChats.prefix(20)) { recent in
-                    Button(recent.title) { onSelectChat(recent.id) }
-                }
-                Divider()
-                Button("Show All Chats…", action: onOpenInWindow)
-            } label: {
-                HeaderIcon(systemName: "clock.arrow.circlepath")
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Chat history")
+                .frame(minHeight: 26)
 
             HeaderButton(systemName: "square.and.pencil", help: "New chat (⌘N)", action: onNewChat)
                 .keyboardShortcut("n")
@@ -105,7 +110,7 @@ struct MessageView: View {
     var onRegenerate: () -> Void
 
     @State private var hovering = false
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.conversationTextSize) private var textSize
 
     var body: some View {
         switch message.role {
@@ -124,7 +129,7 @@ struct MessageView: View {
                     HStack {
                         Spacer(minLength: 96)
                         Text(message.text)
-                            .font(.system(size: 14.5))
+                            .font(.system(size: textSize))
                             .lineSpacing(2)
                             .textSelection(.enabled)
                             .padding(.horizontal, 13)
@@ -132,8 +137,7 @@ struct MessageView: View {
                             .background {
                                 let shape = UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 18,
                                                                    bottomTrailingRadius: 6, topTrailingRadius: 18)
-                                shape.fill(.white.opacity(colorScheme == .dark ? 0.18 : 0.6))
-                                    .stroke(.primary.opacity(0.06), lineWidth: 0.5)
+                                shape.fill(.fill.secondary)
                             }
                     }
                 }
@@ -171,9 +175,10 @@ struct MessageView: View {
     }
 }
 
-/// The status row above a reply. While streaming: "Thinking…", or the running web step
-/// ("Searching "…"", "Reading example.com") with a shimmer. Afterwards a disclosure row
-/// ("Thought for 3s", "Ran 2 searches · 3s") that lists the steps and any thinking text.
+/// The status row above a reply. While streaming: "Thinking…", or the running step
+/// ("Searching "…"", "Reading example.com", "Bash npm test") with a shimmer. Afterwards a
+/// disclosure row ("Thought for 3s", "Ran 2 searches · 3s", "Used 4 tools · 9s") that
+/// lists the steps and any thinking text.
 private struct StatusRow: View {
     let message: Message
     let isStreaming: Bool
@@ -214,9 +219,9 @@ private struct StatusRow: View {
                         ForEach(steps.indices, id: \.self) { index in
                             let step = steps[index]
                             Label {
-                                Text(step.isSearch ? step.detail : step.host).lineLimit(1).truncationMode(.middle)
+                                Text(step.label).lineLimit(1).truncationMode(.middle)
                             } icon: {
-                                Image(systemName: step.isSearch ? "magnifyingglass" : "globe")
+                                Image(systemName: step.symbol)
                                     .font(.system(size: 10.5))
                             }
                             .help(step.detail)
@@ -240,21 +245,27 @@ private struct StatusRow: View {
     /// A step is running while no text has followed it yet.
     private func liveText(_ steps: [ToolStep]) -> String? {
         if let step = steps.last, step.textOffset == message.text.utf8.count {
-            return step.isSearch ? "Searching \u{201C}\(step.detail)\u{201D}" : "Reading \(step.host)"
+            return step.liveLabel
         }
         return message.text.isEmpty ? "Thinking…" : nil
     }
 
     private func summary(_ steps: [ToolStep], seconds: Int) -> String {
         let searches = steps.filter(\.isSearch).count
-        let pages = steps.count - searches
+        let pages = steps.filter(\.isFetch).count
+        // Agent chats: anything besides the web tools (commands, edits, reads…).
+        let others = steps.count - searches - pages
         let read = pages == 1 ? "1 page" : "\(pages) pages"
-        let label = switch (searches, pages) {
-        case (0, 0): "Thought for \(seconds)s"
+        var label = switch (searches, pages) {
+        case (0, 0): others == 0 ? "Thought for \(seconds)s" : ""
         case (1, 0): "Searched the web"
         case (_, 0): "Ran \(searches) searches"
         case (0, _): "Read \(read)"
         default: "Ran \(searches == 1 ? "1 search" : "\(searches) searches"), read \(read)"
+        }
+        if others > 0 {
+            let used = others == 1 ? "1 tool" : "\(others) tools"
+            label = label.isEmpty ? "Used \(used)" : "\(label), used \(used)"
         }
         return steps.isEmpty ? label : "\(label) · \(seconds)s"
     }
@@ -262,6 +273,32 @@ private struct StatusRow: View {
 
 private extension ToolStep {
     var isSearch: Bool { name == "WebSearch" }
+    var isFetch: Bool { name == "WebFetch" }
+    /// Agent tools that name a file show just its name.
+    private var shortDetail: String {
+        detail.hasPrefix("/") ? URL(filePath: detail).lastPathComponent : detail
+    }
+    /// One line in the expanded step list.
+    var label: String {
+        if isSearch { return detail }
+        if isFetch { return host }
+        return detail.isEmpty ? name : "\(name) \(shortDetail)"
+    }
+    /// The running step, e.g. "Searching "…"", "Reading example.com", "Bash git status".
+    var liveLabel: String {
+        if isSearch { return "Searching \u{201C}\(detail)\u{201D}" }
+        if isFetch { return "Reading \(host)" }
+        return label
+    }
+    var symbol: String {
+        switch name {
+        case "WebSearch": "magnifyingglass"
+        case "WebFetch": "globe"
+        case "Bash": "terminal"
+        case "Edit", "Write", "MultiEdit", "NotebookEdit": "pencil"
+        default: "wrench.and.screwdriver"
+        }
+    }
     /// "example.com" for a fetched URL.
     var host: String {
         guard let host = URL(string: detail)?.host() else { return detail }
@@ -274,9 +311,9 @@ struct PulseDot: View {
 
     var body: some View {
         Circle()
-            .fill(Color.accentBlue)
+            .fill(Color.accentColor)
             .frame(width: 8, height: 8)
-            .shadow(color: Color.accentBlue, radius: 5)
+            .shadow(color: Color.accentColor, radius: 5)
             .scaleEffect(small ? 0.6 : 1)
             .opacity(small ? 0.5 : 1)
             .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true), value: small)

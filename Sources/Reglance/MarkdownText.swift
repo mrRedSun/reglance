@@ -5,6 +5,7 @@ import SwiftUI
 /// Deliberately small; unknown syntax falls through as plain paragraph text.
 struct MarkdownText: View {
     private let blocks: [MarkdownBlock]
+    @Environment(\.conversationTextSize) private var textSize
     init(_ text: String) { blocks = MarkdownBlock.parse(text) }
 
     var body: some View {
@@ -22,7 +23,7 @@ struct MarkdownText: View {
         case .paragraph(let text):
             Text(Self.inline(text))
         case .heading(let level, let text):
-            Text(Self.inline(text)).font(.system(size: level == 1 ? 17 : 15.5, weight: .semibold))
+            Text(Self.inline(text)).font(.system(size: textSize + (level == 1 ? 2.5 : 1), weight: .semibold))
         case .list(let items):
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(items.indices, id: \.self) { index in
@@ -52,14 +53,14 @@ struct MarkdownText: View {
                     }
                 }
             }
-            .font(.system(size: 13.5))
+            .font(.system(size: textSize - 1))
             .lineSpacing(2)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .background(.primary.opacity(0.045), in: .rect(cornerRadius: 10))
         case .code(let code):
             Text(code)
-                .font(.system(size: 12.5, design: .monospaced))
+                .font(.system(size: textSize - 2, design: .monospaced))
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.primary.opacity(0.07), in: .rect(cornerRadius: 10))

@@ -14,6 +14,7 @@ class Reglance < Formula
     app = prefix/"Reglance.app"
     (app/"Contents/MacOS").install ".build/release/Reglance"
     (app/"Contents").install "Resources/Info.plist"
+    (app/"Contents/Resources").install "Resources/AppIcon.icns"
     system "codesign", "--force", "--sign", "-", "--identifier", "app.reglance", app
   end
 

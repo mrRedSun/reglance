@@ -20,5 +20,7 @@ let package = Package(
         // Debug entry point that drives ChatCore from the terminal.
         .executableTarget(name: "reglance-cli", dependencies: ["ChatCore"]),
         .testTarget(name: "ChatCoreTests", dependencies: ["ChatCore"]),
+        .testTarget(name: "ReglanceTests", dependencies: ["Reglance"],
+                    swiftSettings: [.defaultIsolation(MainActor.self)]),
     ]
 )

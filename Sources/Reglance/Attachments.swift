@@ -7,29 +7,40 @@ import SwiftUI
 @Observable
 final class AttachmentTray {
     private(set) var drafts: [AttachmentDraft] = []
+    private(set) var preparingCount = 0
+    var isPreparing: Bool { preparingCount > 0 }
+    private var generation = 0
     /// Why the last file was rejected; cleared by the next add or send.
     var error: String?
 
     func add(fileURLs: [URL]) {
         error = nil
         let urls = fileURLs.filter(\.isFileURL)
+        preparingCount += urls.count
+        let generation = self.generation
         Task {
             for url in urls {
                 let result = await Task.detached(priority: .userInitiated) {
                     Result { try AttachmentDraft(fileURL: url) }
                 }.value
+                guard generation == self.generation else { return }
                 append(result)
+                preparingCount -= 1
             }
         }
     }
 
     func add(imageData: Data) {
         error = nil
+        preparingCount += 1
+        let generation = self.generation
         Task {
             let result = await Task.detached(priority: .userInitiated) {
                 Result { try AttachmentDraft(imageData: imageData, name: "Pasted image") }
             }.value
+            guard generation == self.generation else { return }
             append(result)
+            preparingCount -= 1
         }
     }
 
@@ -39,7 +50,12 @@ final class AttachmentTray {
 
     /// Hands the drafts to `send` and empties the tray.
     func take() -> [AttachmentDraft] {
-        defer { drafts = []; error = nil }
+        defer {
+            drafts = []
+            error = nil
+            generation += 1
+            preparingCount = 0
+        }
         return drafts
     }
 
@@ -65,64 +81,29 @@ extension View {
 
 // MARK: - Paste
 
-/// ⌘V in a prompt bar's text field: files and image data become attachments; anything
-/// with text on the pasteboard pastes as text, as before.
-final class PasteInterceptor {
-    weak var window: NSWindow?
-    private var monitor: Any?
-
-    func start(tray: AttachmentTray) {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak tray] event in
-            guard let self, let tray, let window = self.window, event.window === window,
-                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                  event.charactersIgnoringModifiers == "v",
-                  let editor = window.firstResponder as? NSTextView, editor.isEditable,
-                  Self.paste(into: tray) else { return event }
-            return nil
-        }
-    }
-
-    func stop() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-    }
-
+/// A copied screenshot may include text as an alternate clipboard representation.
+/// Prefer explicit files and images; only an ordinary text clipboard pastes as text.
+enum AttachmentPasteboard {
     private static let imageTypes: [NSPasteboard.PasteboardType] = [
         .png, .tiff, NSPasteboard.PasteboardType("public.jpeg"), NSPasteboard.PasteboardType("public.heic"),
     ]
 
+    static func canAttach(from pasteboard: NSPasteboard) -> Bool {
+        pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+            || pasteboard.availableType(from: imageTypes) != nil
+    }
+
     /// Returns false when the pasteboard should be pasted as text.
-    private static func paste(into tray: AttachmentTray) -> Bool {
-        let pasteboard = NSPasteboard.general
+    static func paste(into tray: AttachmentTray, from pasteboard: NSPasteboard = .general) -> Bool {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty {
             tray.add(fileURLs: urls)
             return true
         }
-        guard !(pasteboard.types ?? []).contains(.string),
-              let type = pasteboard.availableType(from: imageTypes),
+        guard let type = pasteboard.availableType(from: imageTypes),
               let data = pasteboard.data(forType: type) else { return false }
         tray.add(imageData: data)
         return true
-    }
-}
-
-/// Reports the hosting window, for the paste monitor.
-struct WindowReader: NSViewRepresentable {
-    let onWindow: (NSWindow?) -> Void
-
-    func makeNSView(context: Context) -> NSView { Reader(onWindow: onWindow) }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private final class Reader: NSView {
-        let onWindow: (NSWindow?) -> Void
-        init(onWindow: @escaping (NSWindow?) -> Void) {
-            self.onWindow = onWindow
-            super.init(frame: .zero)
-        }
-        required init?(coder: NSCoder) { fatalError() }
-        override func viewDidMoveToWindow() { onWindow(window) }
     }
 }
 

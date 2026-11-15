@@ -1,41 +1,137 @@
-# Reglance
+<p align="center">
+  <img src="docs/images/icon.png" width="128" height="128" alt="Reglance icon">
+</p>
 
-A floating chat bar for quick questions to Claude on macOS. Press ⌥Space anywhere, including over full-screen apps, and a Liquid Glass bar appears. Ask something, paste a link or drop in a screenshot, and the answer streams into a panel that grows up from the bar. Every chat is saved, and you can reopen it in the main window and keep going.
+<h1 align="center">Reglance</h1>
 
-It's for everyday questions, not coding. Reglance runs your installed `claude` CLI (Claude Code) with your settings, CLAUDE.md, MCP servers, skills and local tools turned off. The only tools it allows are web search and reading web pages, so it can check a product link or look something up, but it can't touch files or run commands on your Mac. It uses your existing Claude login, so there's no API key to set up.
+<p align="center">
+  <b>Ask Claude without leaving what you're doing.</b><br>
+  Press ⌥Space over any app, ask, and get back to work.
+</p>
 
-Answers can include charts, small interactive HTML pages (sandboxed, with no network access) and Markdown documents you can save.
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-26%2B-black?logo=apple" alt="macOS 26 or later">
+  <img src="https://img.shields.io/badge/Apple%20Silicon-native-black" alt="Apple Silicon">
+  <img src="https://img.shields.io/github/v/tag/mrRedSun/reglance?label=version" alt="Latest version">
+  <img src="https://img.shields.io/github/license/mrRedSun/reglance" alt="MIT license">
+</p>
 
-## Install
-
-You need macOS 26 or later, [Homebrew](https://brew.sh), and Apple's developer tools. If you don't have Xcode, install the free command line tools first:
-
-```sh
-xcode-select --install
-```
-
-Reglance talks to Claude through [Claude Code](https://code.claude.com/docs/en/setup). Install it, then run `claude` once in a terminal to log in.
-
-Then install the app:
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.gif">
+    <img src="docs/images/hero-light.gif" width="560" alt="Typing a question into the floating bar; the answer streams in above it with a bar chart">
+  </picture>
+</p>
 
 ```sh
 brew tap mrRedSun/reglance https://github.com/mrRedSun/reglance
 brew install mrRedSun/reglance/reglance
-ln -sf "$(brew --prefix)/opt/reglance/Reglance.app" /Applications/Reglance.app
-open /Applications/Reglance.app
 ```
+
+Needs macOS 26 on Apple Silicon and a [Claude Code](https://code.claude.com/docs/en/setup) login. [Full install steps](#install) below.
+
+## What it is
+
+Reglance is a small native Mac app for the quick questions you'd otherwise open a browser tab for. The bar floats over whatever you're doing, full-screen apps included. The answer grows up out of it, and Esc puts it away. Every chat is saved, so you can pick one up later in the chats window.
+
+It runs on the Claude Code login you already have, so there's no API key to paste. It's built with AppKit and SwiftUI: no Electron and no web wrapper.
+
+## Features
+
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/widgets-dark.png">
+        <img src="docs/images/widgets-light.png" alt="An interactive compound interest calculator inside a reply">
+      </picture>
+    </td>
+    <td>
+      <h3>Answers you can use</h3>
+      Replies can include charts, documents you can save as Markdown, and small interactive pages like calculators and quizzes. The pages run in a sandbox with no network access.
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/attachments-dark.png">
+        <img src="docs/images/attachments-light.png" alt="A floor plan image and a lease PDF attached in the floating bar">
+      </picture>
+    </td>
+    <td>
+      <h3>Paste a screenshot, drop a PDF</h3>
+      Paste with ⌘V or drop files onto the bar. Images, PDFs and text files go to Claude with your question.
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/picker-dark.gif">
+        <img src="docs/images/picker-light.gif" alt="The model pill opening into a card to choose the model and effort">
+      </picture>
+    </td>
+    <td>
+      <h3>Choose the model and effort</h3>
+      Haiku for a quick fact, Opus at high effort for a hard question. Each chat remembers what it used.
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/chats-dark.png">
+        <img src="docs/images/chats-light.png" alt="The chats window with a sidebar of saved chats and a trip itinerary">
+      </picture>
+    </td>
+    <td>
+      <h3>Every chat, saved on your Mac</h3>
+      Continue any chat from the floating bar or the chats window. Pin, rename, archive or delete chats from the sidebar.
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/agent-dark.png">
+        <img src="docs/images/agent-light.png" alt="An agent chat with a red outline, after fixing links in a blog folder">
+      </picture>
+    </td>
+    <td>
+      <h3>Agent mode, when you ask for it</h3>
+      Switch it on (⌘⇧A) and Claude works in a folder you pick, with your full Claude Code setup. Agent chats are outlined in red so you always know which mode you're in.
+    </td>
+  </tr>
+</table>
+
+## Safe by default
+
+- Ordinary chats can search the web and read web pages, nothing else. Claude can't open your files or run commands.
+- Your Claude Code settings, CLAUDE.md, MCP servers and skills stay out of ordinary chats.
+- Chats are JSON files in `~/Library/Application Support/Reglance`. Reglance has no server and no analytics.
+- Agent mode is off for every new chat, and it asks you to confirm the first time you turn it on.
+
+## Install
+
+You need macOS 26 or later on Apple Silicon, [Homebrew](https://brew.sh), and Apple's command line tools (`xcode-select --install` if you don't have Xcode).
+
+1. Install [Claude Code](https://code.claude.com/docs/en/setup) and run `claude` once in a terminal to log in.
+2. Install Reglance:
+
+   ```sh
+   brew tap mrRedSun/reglance https://github.com/mrRedSun/reglance
+   brew install mrRedSun/reglance/reglance
+   ln -sf "$(brew --prefix)/opt/reglance/Reglance.app" /Applications/Reglance.app
+   open /Applications/Reglance.app
+   ```
+
+3. Press ⌥Space.
 
 Homebrew builds the app on your Mac, which takes about a minute. Because it's built locally, macOS opens it without the "unidentified developer" warning. The app isn't notarized by Apple and isn't in the official Homebrew catalog.
 
-Press ⌥Space to show the bar. Reglance has no Dock icon; use its menu bar icon to open your chats or quit.
-
-### Update
+<details>
+<summary>Update or uninstall</summary>
 
 ```sh
 brew update && brew upgrade reglance
 ```
-
-### Uninstall
 
 ```sh
 brew uninstall reglance
@@ -45,80 +141,60 @@ brew untap mrRedSun/reglance
 
 Your chats stay in `~/Library/Application Support/Reglance`. Delete that folder to remove them too.
 
-## Requirements for building from source
+</details>
 
-- macOS 26 or later (Liquid Glass), Apple Silicon
-- Swift 6.2+ toolchain (Xcode 26 or later)
-- Claude Code installed and logged in
-
-## Build and run
-
-```sh
-scripts/build-app.sh          # builds build/Reglance.app (release, ad-hoc signed)
-scripts/build-app.sh --open   # builds and launches it
-```
-
-The app has no Dock icon. Use the menu bar icon to show the prompt bar, open the chats window, or quit. You can copy `build/Reglance.app` to `/Applications`.
-
-For development:
-
-```sh
-swift build
-swift test
-swift run Reglance     # runs the app unbundled
-```
-
-### Keys
+## Keyboard shortcuts
 
 | Key | Action |
 | --- | --- |
-| ⌥Space | Show or hide the prompt bar |
+| ⌥Space | Show or hide the bar |
 | Return | Send |
-| ⌥Return | New line |
-| Esc | Hide the panel |
-| ⌘N | New chat (expanded panel) |
-| ⌘O | Open the chat in the main window (expanded panel) |
-| ⌘V | Paste text, or attach a copied image or file |
+| ⇧Return or ⌥Return | New line |
+| Esc | Hide the bar |
+| ⌘N | New chat |
+| ⌘O | Open the chat in the chats window |
+| ⌘⇧A | Turn agent mode on or off (starts a new chat) |
+| ⌘, | Settings |
 
-Drop files onto the bar or the main window's input to attach them. Images are scaled down to 1568px on the long edge. PDFs and other files can be up to 10 MB, and text files up to 1 MB.
+## More details
 
-## Terminal client
+<details>
+<summary>Chats, models and settings</summary>
 
-`reglance-cli` goes through the same `ChatController` and `ClaudeClient` code as the app and saves to the same chat history:
+Right-click a chat in the sidebar to rename, pin, archive or delete it. Pinned chats stay at the top. Archived chats are under Archive and can be unarchived. Delete asks for confirmation and removes the chat's saved messages and attachment copies, but leaves the Claude CLI's own session history alone.
 
-```sh
-swift run reglance-cli ask --model haiku "Which dogs can't bark?"
-swift run reglance-cli ask --chat <chat-id> "Why do they yodel?"     # follow-up via --resume
-swift run reglance-cli regenerate <chat-id>                          # replace the last reply
-swift run reglance-cli ask --stop-after 2 "Write a long essay"       # cancel, like the stop button
-swift run reglance-cli ask --attach shot.png "What's in this?"       # attachments; repeatable
-swift run reglance-cli list
-```
+The composer menu has separate Model and Effort choices. Automatic uses the CLI's default; Low, Medium, High, Extra high and Max pass the effort explicitly.
 
-## Where things live
+Drag the floating bar by its title, or by the top or left edge of the collapsed bar. Images are scaled down to 1568px on the long edge. PDFs and other files can be up to 10 MB, and text files up to 1 MB.
 
-Everything is stored under `~/Library/Application Support/Reglance/`:
+Reglance is a regular Mac app with a Dock icon, a chats window and a menu bar icon. Closing the chats window keeps the bar available; ⌘Q quits. In Settings you can turn on Open at login.
 
-- `Chats/<id>.json`: one file per chat (title, timestamps, model, Claude session id, messages).
-- `Chats/<id>/`: copies of that chat's attachments.
-- `ClaudeWorkdir/`: the empty working directory the `claude` subprocess runs in, so no project files or `CLAUDE.md` get picked up.
+</details>
 
-Each message goes to `claude -p --input-format stream-json` as one JSON user message on stdin: images as base64 image blocks, PDFs as document blocks, text files inlined. The system prompt is in `Sources/ChatCore/SystemPrompt.swift`; it fills in today's date and your region, units and currency from macOS settings. The only tools enabled are WebSearch and WebFetch.
+<details>
+<summary>Agent mode in full</summary>
 
-Each follow-up runs `claude -p … --resume <session> --fork-session`. Every reply therefore has its own session id, and regenerate resumes the session from before the last turn. The CLI keeps those sessions in its own store (`~/.claude/projects/`).
+In agent mode, Claude runs as Claude Code normally does in a folder you choose: the default system prompt, your settings, CLAUDE.md, skills, hooks, plugins, MCP servers and local tools. **Permission prompts are bypassed** (`--permission-mode bypassPermissions`), so commands and file changes run without asking.
 
-The app looks for `claude` in the usual install locations (`~/.local/bin`, Homebrew, npm, bun). If it isn't there, it asks your login shell, because apps launched from Finder don't get your shell `PATH`.
+A chat keeps the mode it was created with. Follow-ups in an agent chat stay in its folder, and an ordinary chat never gets agent permissions. Switching the toggle while a chat is open starts a new chat. Agent chats have a red outline, an "Agent mode · Permissions bypassed" label, and a red badge in the sidebar. The red styling is a warning, not a sandbox. The stop button ends the `claude` process and the commands it started.
 
-## Code layout
+Reglance doesn't request Accessibility or Screen Recording access itself. macOS asks only if a tool you configured needs it.
 
-- `Sources/ChatCore`: no UI. `ClaudeClient` (subprocess, stream-json parsing, cancel), `SystemPrompt`, `ClaudeLocator`, `Chat`/`Message`, `Attachment`, `ReplyContent` (splits replies into markdown and widget blocks), `ChatStore` (JSON persistence), `ChatController` (shared observable state).
-- `Sources/Reglance`: the menu bar app. `FloatingPanel` (non-activating panel), `HotKey` (Carbon global hotkey, no Accessibility permission needed), `PromptBarView`, `ReplyView` (expanded panel and `MessageView`, which renders every message in both windows), `ReplyBody` (markdown, chart and document cards), `HTMLWidget` (sandboxed web view), `Attachments`, `MainWindow`, `MarkdownText`.
-- `Formula/reglance.rb`: the Homebrew formula; `scripts/build-app.sh` does the same build locally.
-- `Sources/reglance-cli`: the terminal client.
-- `design/`: HTML mockups the UI follows.
+</details>
 
-## Not done yet
+<details>
+<summary>How it works</summary>
 
-- Dictation.
-- An app icon.
-- The ⌥Space shortcut is fixed and can't be changed in settings.
+Reglance runs your installed `claude` CLI headless (`claude -p`) with a short system prompt and only the WebSearch and WebFetch tools. It uses your existing login. Each reply streams back as JSON and renders natively. Charts use Swift Charts, and interactive pages use a sandboxed web view that loads only when it's on screen.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the full technical details.
+
+</details>
+
+## Contributing
+
+Bug reports and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers building from source, tests, demo mode and the code layout.
+
+## License
+
+[MIT](LICENSE). Reglance is an independent project and isn't affiliated with Anthropic.
