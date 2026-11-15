@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func makeStatusItem() -> NSStatusItem {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "bubble.left.and.text.bubble.right", accessibilityDescription: "Reglance")
+        item.button?.image = NSImage(systemSymbolName: "bubble.left.and.text.bubble.right", accessibilityDescription: "ReGlance")
         let menu = NSMenu()
         let show = menu.addItem(withTitle: "Show Prompt Bar", action: #selector(showPanel), keyEquivalent: "")
         show.target = self
@@ -77,25 +77,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Open Chats…", action: #selector(openMainWindow), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: "").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Reglance", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit ReGlance", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         return item
     }
 
     private func makeMainMenu() -> NSMenu {
         let main = NSMenu()
-        let appMenu = NSMenu(title: "Reglance")
-        appMenu.addItem(withTitle: "About Reglance", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let appMenu = NSMenu(title: "ReGlance")
+        appMenu.addItem(withTitle: "About ReGlance", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide Reglance", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Hide ReGlance", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
         appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit Reglance", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        main.addItem(withTitle: "Reglance", action: nil, keyEquivalent: "").submenu = appMenu
+        appMenu.addItem(withTitle: "Quit ReGlance", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        main.addItem(withTitle: "ReGlance", action: nil, keyEquivalent: "").submenu = appMenu
 
         let file = NSMenu(title: "File")
         // Cmd-N inside the floating panel is handled by its local keyboard routing.

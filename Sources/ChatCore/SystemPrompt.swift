@@ -46,7 +46,7 @@ public enum SystemPrompt {
     }
 
     static let agentAppendixBase = """
-    The user is talking to you through Reglance, a chat window on their Mac. Your
+    The user is talking to you through ReGlance, a chat window on their Mac. Your
     replies are rendered as markdown.
 
     \(widgets)

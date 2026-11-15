@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Builds build/Reglance.app: a release build wrapped in an app bundle with
+# Builds build/ReGlance.app: a release build wrapped in an app bundle with
 # Resources/Info.plist (regular Mac app with a Dock icon), ad-hoc code signed.
 # Formula/reglance.rb does the same steps when installing through Homebrew.
 #
@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "${0:A:h}/.."
-APP="build/Reglance.app"
+APP="build/ReGlance.app"
 
 swift build -c release --product Reglance
 BIN="$(swift build -c release --show-bin-path)/Reglance"

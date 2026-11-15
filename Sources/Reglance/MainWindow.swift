@@ -38,7 +38,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false
         )
-        window.title = "Reglance"
+        window.title = "ReGlance"
         window.titleVisibility = .hidden
         window.contentMinSize = NSSize(width: 900, height: 620)
         window.contentViewController = MainHostingController(rootView: MainView(chats: chats, window: model))
@@ -246,7 +246,7 @@ private struct MainView: View {
             }
             Button("Cancel", role: .cancel) { deletingChat = nil }
         } message: { chat in
-            Text("Delete \"\(chat.title)\" and its attachment copies from Reglance? This cannot be undone. Claude CLI session history is not deleted.")
+            Text("Delete \"\(chat.title)\" and its attachment copies from ReGlance? This cannot be undone. Claude CLI session history is not deleted.")
         }
         .onChange(of: chats.chat(window.selection)?.isArchived) {
             if let selected = chats.chat(window.selection), selected.isArchived != window.showsArchive {

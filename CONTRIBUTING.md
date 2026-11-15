@@ -1,4 +1,4 @@
-# Contributing to Reglance
+# Contributing to ReGlance
 
 Thanks for helping. This file covers building, testing and how the code fits together. The [README](README.md) is the user-facing page. [AGENTS.md](AGENTS.md) has the product and design rules every change follows. Read its Product and Design sections before proposing a feature.
 
@@ -14,11 +14,11 @@ Bugs and ideas go in [GitHub issues](https://github.com/mrRedSun/reglance/issues
 ## Build and run
 
 ```sh
-scripts/build-app.sh          # builds build/Reglance.app (release, ad-hoc signed)
+scripts/build-app.sh          # builds build/ReGlance.app (release, ad-hoc signed)
 scripts/build-app.sh --open   # builds and launches it
 ```
 
-The app opens its chats window at launch. You can copy `build/Reglance.app` to `/Applications`.
+The app opens its chats window at launch. You can copy `build/ReGlance.app` to `/Applications`.
 
 For development:
 
@@ -32,10 +32,10 @@ Write a failing test before fixing a bug. AppKit tests have a few traps (no key 
 
 ## Demo mode
 
-Demo mode runs the app on made-up chats with canned replies. Use it to show Reglance off, record it, or take screenshots without exposing real conversations:
+Demo mode runs the app on made-up chats with canned replies. Use it to show ReGlance off, record it, or take screenshots without exposing real conversations:
 
 ```sh
-REGLANCE_DEMO=1 build/Reglance.app/Contents/MacOS/Reglance
+REGLANCE_DEMO=1 build/ReGlance.app/Contents/MacOS/Reglance
 ```
 
 - `REGLANCE_DEMO=1` (or the `--demo` argument) uses a fresh temporary data folder each launch. `REGLANCE_DEMO=/some/folder` uses that folder and keeps it between launches.

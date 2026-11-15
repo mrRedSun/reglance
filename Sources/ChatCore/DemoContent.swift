@@ -151,8 +151,8 @@ public enum DemoContent {
     public static let fallback = Reply(
         keyword: "", question: "", title: "Demo chat",
         text: """
-            This is Reglance's **demo mode**, so replies are canned and no message leaves your \
-            Mac. Quit and reopen Reglance without `REGLANCE_DEMO` to ask Claude for real.
+            This is ReGlance's **demo mode**, so replies are canned and no message leaves your \
+            Mac. Quit and reopen ReGlance without `REGLANCE_DEMO` to ask Claude for real.
             """
     )
 

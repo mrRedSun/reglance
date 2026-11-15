@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/images/icon.png" width="128" height="128" alt="Reglance icon">
+  <img src="docs/images/icon.png" width="128" height="128" alt="ReGlance icon">
 </p>
 
-<h1 align="center">Reglance</h1>
+<h1 align="center">ReGlance</h1>
 
 <p align="center">
   <b>Ask Claude without leaving what you're doing.</b><br>
@@ -32,7 +32,7 @@ Needs macOS 26 on Apple Silicon and a [Claude Code](https://code.claude.com/docs
 
 ## What it is
 
-Reglance is a small native Mac app for the quick questions you'd otherwise open a browser tab for. The bar floats over whatever you're doing, full-screen apps included. The answer grows up out of it, and Esc puts it away. Every chat is saved, so you can pick one up later in the chats window.
+ReGlance is a small native Mac app for the quick questions you'd otherwise open a browser tab for. The bar floats over whatever you're doing, full-screen apps included. The answer grows up out of it, and Esc puts it away. Every chat is saved, so you can pick one up later in the chats window.
 
 It runs on the Claude Code login you already have, so there's no API key to paste. It's built with AppKit and SwiftUI: no Electron and no web wrapper.
 
@@ -105,7 +105,7 @@ It runs on the Claude Code login you already have, so there's no API key to past
 
 - Ordinary chats can search the web and read web pages, nothing else. Claude can't open your files or run commands.
 - Your Claude Code settings, CLAUDE.md, MCP servers and skills stay out of ordinary chats.
-- Chats are JSON files in `~/Library/Application Support/Reglance`. Reglance has no server and no analytics.
+- Chats are JSON files in `~/Library/Application Support/Reglance`. ReGlance has no server and no analytics.
 - Agent mode is off for every new chat, and it asks you to confirm the first time you turn it on.
 - Agent chats run in Claude Code's auto mode, which blocks risky actions. Skipping permission checks entirely is a separate opt-in in Settings.
 
@@ -114,13 +114,13 @@ It runs on the Claude Code login you already have, so there's no API key to past
 You need macOS 26 or later on Apple Silicon, [Homebrew](https://brew.sh), and Apple's command line tools (`xcode-select --install` if you don't have Xcode).
 
 1. Install [Claude Code](https://code.claude.com/docs/en/setup) and run `claude` once in a terminal to log in.
-2. Install Reglance:
+2. Install ReGlance:
 
    ```sh
    brew tap mrRedSun/reglance https://github.com/mrRedSun/reglance
    brew install mrRedSun/reglance/reglance
-   ln -sf "$(brew --prefix)/opt/reglance/Reglance.app" /Applications/Reglance.app
-   open /Applications/Reglance.app
+   ln -sf "$(brew --prefix)/opt/reglance/ReGlance.app" /Applications/ReGlance.app
+   open /Applications/ReGlance.app
    ```
 
 3. Press ⌥Space.
@@ -136,7 +136,7 @@ brew update && brew upgrade reglance
 
 ```sh
 brew uninstall reglance
-rm /Applications/Reglance.app
+rm /Applications/ReGlance.app
 brew untap mrRedSun/reglance
 ```
 
@@ -168,9 +168,9 @@ The composer menu has separate Model and Effort choices. Automatic uses the CLI'
 
 The floating bar reopens on your last chat. After it has been hidden for 5 minutes it starts a new one; your draft stays, and you can change the wait or turn it off in Settings. Drag the floating bar by its title, or by the top or left edge of the collapsed bar. Images are scaled down to 1568px on the long edge. PDFs and other files can be up to 10 MB, and text files up to 1 MB.
 
-Reglance is a regular Mac app with a Dock icon, a chats window and a menu bar icon. Closing the chats window keeps the bar available; ⌘Q quits. In Settings you can turn on Open at login, change the ⌥Space shortcut, choose when the bar starts a new chat, and check that Claude Code is installed and signed in. The check also shows the full `claude doctor` report.
+ReGlance is a regular Mac app with a Dock icon, a chats window and a menu bar icon. Closing the chats window keeps the bar available; ⌘Q quits. In Settings you can turn on Open at login, change the ⌥Space shortcut, choose when the bar starts a new chat, and check that Claude Code is installed and signed in. The check also shows the full `claude doctor` report.
 
-Under Personal Preferences, tell Claude about yourself and how you like answers: your language, expertise or tone. Reglance adds them to the system prompt of every chat, agent chats included, starting with your next message.
+Under Personal Preferences, tell Claude about yourself and how you like answers: your language, expertise or tone. ReGlance adds them to the system prompt of every chat, agent chats included, starting with your next message.
 
 </details>
 
@@ -183,14 +183,14 @@ If you want every action to run without a check, turn on **Bypass permissions** 
 
 A chat keeps the mode and permissions it was created with. Follow-ups in an agent chat stay in its folder, and an ordinary chat never gets agent permissions. Switching the toggle while a chat is open starts a new chat. The sidebar badge shows which agent chats are which. The stop button ends the `claude` process and the commands it started.
 
-Reglance doesn't request Accessibility or Screen Recording access itself. macOS asks only if a tool you configured needs it.
+ReGlance doesn't request Accessibility or Screen Recording access itself. macOS asks only if a tool you configured needs it.
 
 </details>
 
 <details>
 <summary>How it works</summary>
 
-Reglance runs your installed `claude` CLI headless (`claude -p`) with a short system prompt and only the WebSearch and WebFetch tools. It uses your existing login. Each reply streams back as JSON and renders natively. Charts use Swift Charts, and interactive pages use a sandboxed web view that loads only when it's on screen.
+ReGlance runs your installed `claude` CLI headless (`claude -p`) with a short system prompt and only the WebSearch and WebFetch tools. It uses your existing login. Each reply streams back as JSON and renders natively. Charts use Swift Charts, and interactive pages use a sandboxed web view that loads only when it's on screen.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) has the full technical details.
 
@@ -202,4 +202,4 @@ Bug reports and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) co
 
 ## License
 
-[MIT](LICENSE). Reglance is an independent project and isn't affiliated with Anthropic.
+[MIT](LICENSE). ReGlance is an independent project and isn't affiliated with Anthropic.
