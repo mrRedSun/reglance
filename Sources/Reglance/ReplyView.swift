@@ -28,7 +28,7 @@ struct ReplyView<Bar: View>: View {
                     .transition(.opacity)
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 22) {
                         ForEach(chat.messages) { message in
                             MessageView(
                                 message: message,
@@ -39,7 +39,7 @@ struct ReplyView<Bar: View>: View {
                             )
                         }
                     }
-                    .padding(EdgeInsets(top: 6, leading: 16, bottom: 14, trailing: 16))
+                    .padding(EdgeInsets(top: 10, leading: 22, bottom: 18, trailing: 22))
                     // Short chats start at the top; longer ones stay scrolled to the latest.
                     .frame(maxWidth: .infinity, minHeight: messagesHeight, alignment: .topLeading)
                 }
@@ -93,7 +93,7 @@ struct ReplyView<Bar: View>: View {
                 .keyboardShortcut("o")
             HeaderButton(systemName: "xmark", help: "Close (Esc)", action: onClose)
         }
-        .padding(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 8))
+        .padding(EdgeInsets(top: 14, leading: 22, bottom: 8, trailing: 12))
     }
 }
 
