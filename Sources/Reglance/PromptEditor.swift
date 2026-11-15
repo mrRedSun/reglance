@@ -5,6 +5,7 @@ import SwiftUI
 /// A local key monitor cannot reliably intercept SwiftUI's field editor on every OS.
 struct PromptEditor: NSViewRepresentable {
     @Binding var text: String
+    /// Read to VoiceOver. `PromptBarView` draws it, in SwiftUI so it adapts to the glass.
     let placeholder: String
     let tray: AttachmentTray
     let focusToken: Int
@@ -52,7 +53,7 @@ struct PromptEditor: NSViewRepresentable {
             editor.textContainerInset = NSSize(width: 4, height: verticalInset)
             scroll.invalidateIntrinsicContentSize()
         }
-        editor.placeholder = placeholder
+        editor.setAccessibilityPlaceholderValue(placeholder)
         editor.pasteAttachment = { board in AttachmentPasteboard.paste(into: tray, from: board) }
         editor.onSubmit = onSubmit
         editor.onCancel = onCancel
@@ -125,7 +126,6 @@ final class PromptScrollView: NSScrollView {
 }
 
 final class PromptTextView: NSTextView {
-    var placeholder = ""
     var pasteAttachment: ((NSPasteboard) -> Bool)?
     var onSubmit: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -199,14 +199,5 @@ final class PromptTextView: NSTextView {
             window.makeFirstResponder(self)
             self.wantsFocus = false
         }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard string.isEmpty else { return }
-        placeholder.draw(at: NSPoint(x: textContainerInset.width, y: textContainerInset.height), withAttributes: [
-            .font: font ?? .systemFont(ofSize: 15),
-            .foregroundColor: NSColor.placeholderTextColor,
-        ])
     }
 }

@@ -72,7 +72,7 @@ final class SettingsWindowController {
     private lazy var window: NSWindow = {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 230),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Reglance Settings"
+        window.title = "ReGlance Settings"
         window.contentViewController = NSHostingController(rootView: SettingsView(settings: settings, hotKey: hotKey, doctor: doctor))
         window.isReleasedWhenClosed = false
         window.center()
@@ -96,11 +96,12 @@ private struct SettingsView: View {
     @AppStorage(NewChatAfter.defaultsKey) private var newChatAfter = NewChatAfter.defaultValue
     @AppStorage(AgentMode.bypassKey, store: AgentMode.defaults) private var bypassesPermissions = false
     @AppStorage(SystemPrompt.preferencesKey) private var preferences = ""
+    @AppStorage(PlayfulPrompts.defaultsKey) private var playfulPrompts = false
 
     var body: some View {
         Form {
             Section {
-                Toggle("Open Reglance at login", isOn: Binding(
+                Toggle("Open ReGlance at login", isOn: Binding(
                     get: { settings.isEnabled },
                     set: { value in Task { await settings.setEnabled(value) } }
                 ))
@@ -109,7 +110,7 @@ private struct SettingsView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 if settings.status == .requiresApproval {
-                    Text("Allow Reglance in System Settings to finish enabling it.")
+                    Text("Allow ReGlance in System Settings to finish enabling it.")
                         .font(.callout)
                     Button("Open Login Items Settings…") { SMAppService.openSystemSettingsLoginItems() }
                 }
@@ -120,6 +121,10 @@ private struct SettingsView: View {
                     ForEach(NewChatAfter.options, id: \.seconds) { Text($0.title).tag($0.seconds) }
                 }
                 Text("How long the chat bar stays hidden before it reopens empty. Your draft stays.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Toggle("Playful prompts", isOn: $playfulPrompts)
+                Text("Swap \u{201C}Ask anything\u{201D} for a different nudge, like \u{201C}Do your worst\u{201D}, each time the bar opens.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } header: {

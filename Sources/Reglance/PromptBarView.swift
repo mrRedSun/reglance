@@ -34,6 +34,13 @@ struct PromptBarView: View {
     var onChooseAgentDirectory: (() -> Void)? = nil
 
     @State private var localPickerIsPresented = false
+    @AppStorage(PlayfulPrompts.defaultsKey) private var playfulPrompts = false
+    @State private var playfulPrompt = PlayfulPrompts.random()
+
+    private var placeholder: String {
+        if docked { return "Ask a follow-up" }
+        return playfulPrompts ? playfulPrompt : "Ask anything"
+    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var pickerPresentation: Binding<Bool> { pickerIsPresented ?? $localPickerIsPresented }
@@ -138,10 +145,27 @@ struct PromptBarView: View {
 
     private var inputRow: some View {
         HStack(alignment: .bottom, spacing: 4) {
-            PromptEditor(text: $text, placeholder: docked ? "Ask a follow-up" : "Ask anything",
+            PromptEditor(text: $text, placeholder: placeholder,
                          tray: tray, focusToken: focusToken, onSubmit: submit, onCancel: dismissPicker,
                          verticalInset: editorInset)
                 .frame(minHeight: 20 + 2 * editorInset)
+                // In SwiftUI, not drawn by the text view: a hierarchical style on glass adapts
+                // to what's behind it, where AppKit's placeholder grey went muddy on dark or
+                // colourful backgrounds. Placed where the editor starts its first line.
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(placeholder)
+                            .font(.system(size: 15))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .padding(.leading, 4)
+                            .padding(.top, editorInset)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+                // Opening the bar or starting a chat bumps the token: a new playful prompt.
+                .onChange(of: focusToken) { playfulPrompt = PlayfulPrompts.random(excluding: playfulPrompt) }
 
             AgentToggle(isOn: agentDirectory != nil, permissions: agentPermissions, action: onToggleAgent)
                 .padding(.bottom, editorInset - 5)
