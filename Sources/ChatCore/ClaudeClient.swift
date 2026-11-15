@@ -154,21 +154,36 @@ public struct ClaudeClient: ClaudeStreamingClient {
         process.executableURL = executable
         process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
-        process.environment = childEnvironment(inherited: ProcessInfo.processInfo.environment, executable: executable)
+        process.environment = childEnvironment(inherited: ProcessInfo.processInfo.environment,
+                                               settingsEnvironment: settingsEnvironment(), executable: executable)
         return process
     }
 
-    /// When Reglance was opened from inside a Claude Code session (`CLAUDECODE` is set),
-    /// it inherits that session's variables, including a gateway URL and short-lived token.
-    /// The child would sign in with those instead of the person's own login, so drop them.
-    static func childEnvironment(inherited: [String: String], executable: URL) -> [String: String] {
-        var environment = inherited
-        if inherited["CLAUDECODE"] != nil {
-            environment = environment.filter { !$0.key.hasPrefix("CLAUDE") && !$0.key.hasPrefix("ANTHROPIC_") }
-        }
+    /// Chats pass `--setting-sources ""`, which also drops the `env` block of the user's
+    /// `~/.claude/settings.json`. That block can hold how they sign in (a gateway's
+    /// ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN), so the child gets it as variables.
+    static func childEnvironment(inherited: [String: String], settingsEnvironment: [String: String],
+                                 executable: URL) -> [String: String] {
+        var environment = inherited.merging(settingsEnvironment) { _, setting in setting }
         let extraPath = [executable.deletingLastPathComponent().path, "/opt/homebrew/bin", "/usr/local/bin"]
         environment["PATH"] = (extraPath + [environment["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
         return environment
+    }
+
+    /// The string values of the `env` block in a Claude Code settings file; empty when the
+    /// file is missing or unreadable.
+    static func settingsEnvironment(at url: URL = settingsURL(environment: ProcessInfo.processInfo.environment)) -> [String: String] {
+        guard let data = try? Data(contentsOf: url),
+              let settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let env = settings["env"] as? [String: Any] else { return [:] }
+        return env.compactMapValues { $0 as? String }
+    }
+
+    /// The user settings file, in `CLAUDE_CONFIG_DIR` when it's set, like the CLI.
+    static func settingsURL(environment: [String: String]) -> URL {
+        let directory = environment["CLAUDE_CONFIG_DIR"].flatMap { $0.isEmpty ? nil : URL(filePath: $0, directoryHint: .isDirectory) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude", directoryHint: .isDirectory)
+        return directory.appending(path: "settings.json")
     }
 
     /// One `--input-format stream-json` user message, newline-terminated.
