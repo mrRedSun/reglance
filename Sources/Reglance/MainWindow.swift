@@ -64,9 +64,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             model.showsArchive = chat.isArchived
             model.selection = chat.id
         }
+        WindowPresentation.prepare(window)
         window.deminiaturize(nil)
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        if !WindowPresentation.isHeadless { NSApp.activate() }
         onVisibilityChange?(true)
     }
 

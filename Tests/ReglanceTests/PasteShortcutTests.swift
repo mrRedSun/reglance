@@ -8,7 +8,7 @@ import Testing
 /// clipboard left Paste disabled and Cmd-V did nothing. The test runner can't reliably
 /// make a window key, so these check the menu validation and the action the menu sends.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .headlessWindows)
 struct PasteShortcutTests {
     private func findEditor(_ view: NSView) -> PromptTextView? {
         (view as? PromptTextView) ?? view.subviews.lazy.compactMap(findEditor).first

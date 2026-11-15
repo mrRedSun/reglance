@@ -3,7 +3,7 @@ import Testing
 import ChatCore
 @testable import Reglance
 
-@Suite(.serialized)
+@Suite(.serialized, .headlessWindows)
 @MainActor
 struct NewChatAfterTests {
     private final class Clock { var now = Date(timeIntervalSince1970: 0) }

@@ -28,6 +28,7 @@ A lightweight native macOS chat bar for Claude (⌥Space), plus a chats window. 
 
 Reproduce a bug with a failing test before fixing it. AppKit tests here have traps:
 
+- **Headless windows.** Give every suite or test that shows a window the `.headlessWindows` trait, and pass hand-built fixture windows to `WindowPresentation.prepare`. Windows then stay invisible and never take focus while tests run.
 - **No key window.** The test runner isn't the active app, so a window can't reliably become key and synthesized keystrokes get lost in the full suite. Test the gate instead: `validateUserInterfaceItem` for menu commands, then call the action.
 - **SwiftUI probes sizes.** It measures views at several widths (some 40pt) before settling. Sizing code must measure without mutating live views (the composer once wrapped one word per line this way).
 - **Measure the real window.** A hand-built fixture can pass while the real window fails. When a fixture can't reproduce a bug, measure the actual `MainWindowController` or `FloatingPanelController` views.

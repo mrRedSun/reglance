@@ -7,7 +7,7 @@ import Testing
 /// path as text. It sits on top of the SwiftUI drop target, so a dropped file never reached
 /// the attachment tray. These drop a file straight onto the real editors in both windows.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .headlessWindows)
 struct FileDropTests {
     private func findEditor(_ view: NSView) -> PromptTextView? {
         (view as? PromptTextView) ?? view.subviews.lazy.compactMap(findEditor).first

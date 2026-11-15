@@ -15,7 +15,7 @@ private struct TransitionTestClient: ClaudeStreamingClient {
 }
 
 @MainActor
-@Test func sendingKeepsTheSameNativeComposerAndBottomAnchor() async throws {
+@Test(.headlessWindows) func sendingKeepsTheSameNativeComposerAndBottomAnchor() async throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appending(path: "send-transition-test-\(UUID())")
     defer { try? FileManager.default.removeItem(at: directory) }

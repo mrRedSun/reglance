@@ -3,7 +3,7 @@ import Testing
 import ChatCore
 @testable import Reglance
 
-@Suite(.serialized)
+@Suite(.serialized, .headlessWindows)
 @MainActor
 struct WindowAndPasteTests {
     private func imagePasteboard(withText: Bool = false) -> NSPasteboard {

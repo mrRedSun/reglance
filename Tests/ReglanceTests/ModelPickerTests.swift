@@ -24,7 +24,7 @@ private struct PickerFixture: View {
     }
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .headlessWindows)
 @MainActor
 struct ModelPickerTests {
     @Test func modelAndEffortAreIndependentColumns() async throws {
@@ -35,6 +35,7 @@ struct ModelPickerTests {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = hosting
+        WindowPresentation.prepare(window)
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
         try await Task.sleep(for: .milliseconds(100))

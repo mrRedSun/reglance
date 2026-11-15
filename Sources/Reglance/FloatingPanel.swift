@@ -210,6 +210,7 @@ final class FloatingPanelController {
         // First show, or the mouse moved to another display: place it there. Otherwise keep
         // the spot the user dragged it to.
         if !hasPosition || panel.screen?.frame != mouseScreen?.frame { positionOnActiveScreen() }
+        WindowPresentation.prepare(panel)
         panel.makeKeyAndOrderFront(nil)
         model.focusToken += 1
         updateMousePassthrough()

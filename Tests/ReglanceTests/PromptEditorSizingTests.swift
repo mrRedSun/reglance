@@ -6,7 +6,7 @@ import Testing
 @MainActor
 /// SwiftUI measures the field at narrow widths before settling. Measuring must not leave
 /// the text wrapping at a probe width (it wrapped one word per line in the chats window).
-@Test func chatsWindowTextUsesTheFieldWidth() async throws {
+@Test(.headlessWindows) func chatsWindowTextUsesTheFieldWidth() async throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appending(path: "editor-width-test-\(UUID())")
     let controller = MainWindowController(chats: ChatController(store: ChatStore(directory: directory)))
