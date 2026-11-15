@@ -47,10 +47,26 @@ final class FloatingBarModel {
     }
 }
 
+/// How long the bar may stay hidden before it reopens on a new chat. Zero means never.
+enum NewChatAfter {
+    static let defaultsKey = "newChatAfterSeconds"
+    static let defaultValue: TimeInterval = 5 * 60
+    static let options: [(title: String, seconds: TimeInterval)] = [
+        ("1 minute", 60), ("5 minutes", 5 * 60), ("15 minutes", 15 * 60), ("1 hour", 60 * 60), ("Never", 0),
+    ]
+
+    static func current(in defaults: UserDefaults = .standard) -> TimeInterval {
+        defaults.object(forKey: defaultsKey) as? TimeInterval ?? defaultValue
+    }
+}
+
 final class FloatingPanelController {
     let panel = FloatingPanel()
     private let model: FloatingBarModel
     private let chats: ChatController
+    private let newChatAfter: () -> TimeInterval
+    private let now: () -> Date
+    private var hiddenAt: Date?
     private var escapeMonitor: Any?
     private var hasPosition = false
     private var presentationGeneration = 0
@@ -72,9 +88,14 @@ final class FloatingPanelController {
     /// Width of the bar and the expanded panel (the design's 560pt).
     static let contentWidth: CGFloat = 560
 
-    init(chats: ChatController, model: FloatingBarModel = FloatingBarModel(), openInWindow: @escaping (UUID) -> Void) {
+    init(chats: ChatController, model: FloatingBarModel = FloatingBarModel(),
+         newChatAfter: @escaping () -> TimeInterval = { NewChatAfter.current() },
+         now: @escaping () -> Date = Date.init,
+         openInWindow: @escaping (UUID) -> Void) {
         self.chats = chats
         self.model = model
+        self.newChatAfter = newChatAfter
+        self.now = now
         let root = FloatingRootView(
             chats: chats, bar: model,
             onGlassFrame: { [weak self] in
@@ -180,6 +201,7 @@ final class FloatingPanelController {
 
     func show() {
         let isEntering = !panel.isVisible
+        if isEntering { startNewChatIfIdle() }
         // First show, or the mouse moved to another display: place it there. Otherwise keep
         // the spot the user dragged it to.
         if !hasPosition || panel.screen?.frame != mouseScreen?.frame { positionOnActiveScreen() }
@@ -199,6 +221,7 @@ final class FloatingPanelController {
     }
 
     func hide() {
+        if panel.isVisible { hiddenAt = now() }
         presentationGeneration += 1
         panel.orderOut(nil)
         var transaction = Transaction()
@@ -206,6 +229,20 @@ final class FloatingPanelController {
         withTransaction(transaction) {
             model.isPresented = false
             model.pickerIsPresented = false
+        }
+    }
+
+    /// After the bar has been hidden for the chosen time, it reopens on a new chat. The draft
+    /// stays, and a chat that is still replying stays open.
+    private func startNewChatIfIdle() {
+        let limit = newChatAfter()
+        guard limit > 0, let hiddenAt, now().timeIntervalSince(hiddenAt) >= limit,
+              let id = model.chatID, !chats.isStreaming(id) else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            model.chatID = nil
+            model.agentDirectory = nil
         }
     }
 

@@ -93,6 +93,7 @@ private struct SettingsView: View {
     let settings: LoginSettings
     let hotKey: HotKeySettings
     let doctor: ProviderDoctor
+    @AppStorage(NewChatAfter.defaultsKey) private var newChatAfter = NewChatAfter.defaultValue
 
     var body: some View {
         Form {
@@ -113,6 +114,12 @@ private struct SettingsView: View {
                 if let error = settings.error {
                     Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
                 }
+                Picker("Start a new chat after", selection: $newChatAfter) {
+                    ForEach(NewChatAfter.options, id: \.seconds) { Text($0.title).tag($0.seconds) }
+                }
+                Text("How long the chat bar stays hidden before it reopens empty. Your draft stays.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             } header: {
                 Text("General")
             }
