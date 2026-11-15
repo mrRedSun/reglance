@@ -154,11 +154,21 @@ public struct ClaudeClient: ClaudeStreamingClient {
         process.executableURL = executable
         process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
-        var environment = ProcessInfo.processInfo.environment
+        process.environment = childEnvironment(inherited: ProcessInfo.processInfo.environment, executable: executable)
+        return process
+    }
+
+    /// When Reglance was opened from inside a Claude Code session (`CLAUDECODE` is set),
+    /// it inherits that session's variables, including a gateway URL and short-lived token.
+    /// The child would sign in with those instead of the person's own login, so drop them.
+    static func childEnvironment(inherited: [String: String], executable: URL) -> [String: String] {
+        var environment = inherited
+        if inherited["CLAUDECODE"] != nil {
+            environment = environment.filter { !$0.key.hasPrefix("CLAUDE") && !$0.key.hasPrefix("ANTHROPIC_") }
+        }
         let extraPath = [executable.deletingLastPathComponent().path, "/opt/homebrew/bin", "/usr/local/bin"]
         environment["PATH"] = (extraPath + [environment["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
-        process.environment = environment
-        return process
+        return environment
     }
 
     /// One `--input-format stream-json` user message, newline-terminated.
