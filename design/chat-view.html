@@ -1,0 +1,317 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --sf: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--sf); }
+
+  .desk {
+    position: relative; height: 660px; border-radius: var(--radius, 12px); overflow: hidden; padding: 24px 16px;
+    display: flex; align-items: flex-end; justify-content: center;
+    --ink: rgba(255,255,255,.95); --ink2: rgba(255,255,255,.62); --ink3: rgba(255,255,255,.4); --hover: rgba(255,255,255,.16);
+    --bubble: rgba(255,255,255,.18); --sep: rgba(255,255,255,.14);
+    background:
+      radial-gradient(60% 80% at 15% 20%, #ff7a59 0%, transparent 60%),
+      radial-gradient(50% 70% at 85% 30%, #6a5cff 0%, transparent 60%),
+      radial-gradient(60% 80% at 60% 100%, #00b3a4 0%, transparent 60%),
+      linear-gradient(135deg, #2b1a5a, #0f3d5c);
+  }
+  .desk.light {
+    --ink: rgba(0,0,0,.85); --ink2: rgba(0,0,0,.5); --ink3: rgba(0,0,0,.35); --hover: rgba(0,0,0,.07);
+    --bubble: rgba(255,255,255,.6); --sep: rgba(0,0,0,.08);
+    background:
+      radial-gradient(60% 80% at 15% 20%, #ffd2a8 0%, transparent 60%),
+      radial-gradient(50% 70% at 85% 30%, #b8c4ff 0%, transparent 60%),
+      radial-gradient(60% 80% at 60% 100%, #a8f0e0 0%, transparent 60%),
+      linear-gradient(135deg, #f4efe9, #dfe8f5);
+  }
+  .bg-text { position: absolute; left: 24px; top: 24px; right: 24px; font: 700 40px/1.15 var(--sf); color: rgba(255,255,255,.4); pointer-events: none; user-select: none; }
+  .light .bg-text { color: rgba(0,0,0,.25); }
+
+  .glass {
+    position: relative;
+    background: rgba(255,255,255,.14);
+    -webkit-backdrop-filter: blur(22px) saturate(190%);
+    backdrop-filter: blur(22px) saturate(190%);
+    box-shadow:
+      inset 0 1px 0.5px rgba(255,255,255,.75), inset 0 -1px 0.5px rgba(255,255,255,.18),
+      inset 0 0 0 0.5px rgba(255,255,255,.35), 0 14px 40px rgba(0,0,0,.32), 0 1px 3px rgba(0,0,0,.18);
+  }
+  .glass::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.18) 0%, rgba(255,255,255,0) 30%); }
+  .light .glass { background: rgba(255,255,255,.5); box-shadow:
+      inset 0 1px 0.5px rgba(255,255,255,.95), inset 0 -1px 0.5px rgba(255,255,255,.4),
+      inset 0 0 0 0.5px rgba(0,0,0,.08), 0 14px 40px rgba(0,0,0,.16), 0 1px 3px rgba(0,0,0,.1); }
+
+  /* ---------- expanded panel ---------- */
+  .panel { width: min(560px, 100%); border-radius: 24px; display: flex; flex-direction: column; overflow: hidden; }
+
+  .head { position: relative; z-index: 1; display: flex; align-items: center; gap: 2px; padding: 8px 8px 4px 16px; }
+  .head .title { flex: 1; min-width: 0; font: 600 13px var(--sf); color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: transparent; color: var(--ink2); display: grid; place-items: center; cursor: pointer; }
+  .hb:hover { background: var(--hover); color: var(--ink); }
+  .hb svg { width: 14px; height: 14px; }
+
+  .scroll { position: relative; z-index: 1; max-height: 470px; overflow-y: auto; padding: 6px 16px 14px; display: flex; flex-direction: column; gap: 14px;
+            mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 10px), transparent 100%);
+            scrollbar-width: none; }
+  .scroll::-webkit-scrollbar { display: none; }
+
+  .msg-user { align-self: flex-end; max-width: 80%; padding: 8px 13px; border-radius: 18px 18px 6px 18px; background: var(--bubble);
+              color: var(--ink); font: 14.5px/1.4 var(--sf); box-shadow: inset 0 0.5px 0 rgba(255,255,255,.5); }
+  .msg-ai { color: var(--ink); font: 14.5px/1.55 var(--sf); }
+  .msg-ai p { margin: 0 0 8px; } .msg-ai p:last-child { margin: 0; }
+  .msg-ai ul { margin: 4px 0 8px; padding-left: 20px; } .msg-ai li { margin: 2px 0; }
+  .msg-ai b { font-weight: 600; }
+
+  /* progress / thinking row */
+  .status { display: flex; align-items: center; gap: 7px; font: 13px var(--sf); color: var(--ink2); cursor: default; user-select: none; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: #0a84ff; box-shadow: 0 0 10px #0a84ff; animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform: scale(.6); opacity: .5; } }
+  .shimmer { background: linear-gradient(90deg, var(--ink3) 0%, var(--ink) 50%, var(--ink3) 100%); background-size: 200% 100%;
+             -webkit-background-clip: text; background-clip: text; color: transparent; animation: sh 1.6s linear infinite; }
+  @keyframes sh { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+  .status.done { cursor: pointer; } .status.done:hover { color: var(--ink); }
+  .status .chev { width: 10px; height: 10px; transition: transform .2s; }
+  .status.open .chev { transform: rotate(90deg); }
+  .thoughts { display: none; margin: -6px 0 0 3px; padding-left: 12px; border-left: 1.5px solid var(--sep); font: 13px/1.5 var(--sf); color: var(--ink2); }
+  .thoughts.open { display: block; }
+
+  .caret::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 3px; border-radius: 50%; background: var(--ink); vertical-align: middle; animation: blink 0.9s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .actions { display: flex; gap: 2px; margin-top: -6px; opacity: 0; transition: opacity .2s; }
+  .msg-wrap:hover .actions, .msg-wrap:last-child .actions { opacity: 1; }
+  .actions .hb { width: 24px; height: 24px; } .actions .hb svg { width: 13px; height: 13px; }
+
+  /* ---------- input row: same bar as design A, now docked inside the panel ---------- */
+  .dock { position: relative; z-index: 1; padding: 0 7px 7px; }
+  .bar { border-radius: 19px; padding: 6px 6px 6px 6px; display: flex; align-items: flex-end; gap: 4px; background: var(--hover);
+         box-shadow: inset 0 0 0 .5px rgba(255,255,255,.2); }
+  .ib { width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--ink); display: grid; place-items: center; cursor: pointer; flex: none; }
+  .ib:hover { background: var(--hover); }
+  .ib svg { width: 17px; height: 17px; }
+  .model { height: 26px; padding: 0 8px 0 10px; border: 0; border-radius: 13px; background: var(--hover); color: var(--ink);
+           font: 600 12.5px var(--sf); display: flex; align-items: center; gap: 3px; flex: none; white-space: nowrap; cursor: pointer; margin-bottom: 2px; }
+  .model svg { width: 10px; height: 10px; opacity: .7; }
+  .send { width: 30px; height: 30px; border: 0; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--hover); color: var(--ink2); transition: background .15s, transform .1s; }
+  .send.ready, .send.stop { background: #0a84ff; color: #fff; cursor: pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 2px 8px rgba(10,132,255,.45); }
+  .send.stop { background: var(--ink); color: transparent; box-shadow: none; }
+  .send.stop::after { content: ""; width: 10px; height: 10px; border-radius: 2.5px; background: rgba(30,30,40,.9); position: absolute; }
+  .light .send.stop::after { background: #fff; }
+  .send { position: relative; }
+  .send.stop svg { display: none; }
+  .send svg { width: 15px; height: 15px; }
+  textarea { flex: 1; min-width: 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--ink);
+             font: 15px/20px var(--sf); padding: 5px 4px; height: 30px; max-height: 120px; caret-color: #0a84ff; }
+  textarea::placeholder { color: var(--ink2); }
+
+  /* ---------- widget cards ---------- */
+  .card { border-radius: 16px; background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.22), inset 0 1px 0 rgba(255,255,255,.18); overflow: hidden; }
+  .light .card { background: rgba(255,255,255,.45); box-shadow: inset 0 0 0 .5px rgba(0,0,0,.08), inset 0 1px 0 #fff; }
+  .card-head { display: flex; align-items: center; gap: 8px; padding: 9px 8px 0 12px; }
+  .card-head .t { flex: 1; min-width: 0; font: 600 12.5px var(--sf); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-head .k { font: 500 11px var(--sf); color: var(--ink3); text-transform: uppercase; letter-spacing: .04em; }
+  .card .hb { width: 24px; height: 24px; } .card .hb svg { width: 13px; height: 13px; }
+  .chart { display: block; width: 100%; height: 170px; padding: 6px 12px 10px; }
+  .chart text { font: 10.5px var(--sf); fill: var(--ink2); }
+  .chart .grid { stroke: var(--sep); stroke-width: 1; }
+  .chart .bar { fill: url(#barGrad); }
+  .chart .bar.hi { fill: url(#barGradHi); }
+  .chart .val { fill: var(--ink); font-weight: 600; }
+  .art { color-scheme: dark; display: block; width: 100%; height: 190px; border: 0; background: transparent; }
+  .doc { display: flex; align-items: center; gap: 11px; padding: 10px 8px 10px 12px; }
+  .doc .ic { width: 34px; height: 40px; border-radius: 6px; background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(235,240,255,.8)); display: grid; place-items: end center; padding-bottom: 5px; font: 700 8.5px var(--sf); color: #0a84ff; box-shadow: 0 1px 3px rgba(0,0,0,.2); flex: none; }
+  .doc .meta { flex: 1; min-width: 0; } .doc .meta b { display: block; font: 600 13px var(--sf); color: var(--ink); } .doc .meta span { font: 12px var(--sf); color: var(--ink2); }
+  .pill { height: 26px; padding: 0 11px; border: 0; border-radius: 13px; background: var(--hover); color: var(--ink); font: 600 12px var(--sf); cursor: pointer; }
+  .pill:hover { background: rgba(255,255,255,.26); }
+  .placeholder { height: 120px; display: grid; place-items: center; font: 13px var(--sf); }
+
+  .toolbar { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .toolbar button { font: 12px var(--sf); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border, #444); background: transparent; color: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7cc0ff"/><stop offset="1" stop-color="#0a84ff" stop-opacity=".75"/></linearGradient>
+    <linearGradient id="barGradHi" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb37a"/><stop offset="1" stop-color="#ff7a59" stop-opacity=".8"/></linearGradient>
+  </defs>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></g></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+  <symbol id="i-new" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M18.4 3.6a2 2 0 0 1 2.8 2.8L12 15.6 8.5 16.5l.9-3.5z"/></g></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></g></symbol>
+  <symbol id="i-hist" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5"/><path d="M3.5 4v4.5H8M12 7.5V12l3 2"/></g></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.9" fill="none" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></g></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/></g></symbol>
+</svg>
+
+<div class="desk">
+  <div class="bg-text">Which dogs can't bark?<br>Basenji · Shiba ·<br>New Guinea Singing Dog</div>
+
+  <div class="glass panel">
+    <div class="head">
+      <div class="title" id="title">Dogs that can't bark</div>
+      <button class="hb" title="Chat history"><svg><use href="#i-hist"/></svg></button>
+      <button class="hb" title="New chat (⌘N)"><svg><use href="#i-new"/></svg></button>
+      <button class="hb" title="Open in main window (⌘O)"><svg><use href="#i-expand"/></svg></button>
+      <button class="hb" title="Close (Esc)"><svg><use href="#i-x"/></svg></button>
+    </div>
+
+    <div class="scroll" id="scroll">
+      <div class="msg-user">Which dogs can't bark?</div>
+      <div class="status done" onclick="toggleThoughts(this)"><svg class="chev"><use href="#i-right"/></svg>Thought for 2s</div>
+      <div class="thoughts">The user wants breeds that don't bark. The Basenji is the classic answer; mention why (larynx shape) and a couple of quiet relatives.</div>
+      <div class="msg-wrap">
+        <div class="msg-ai">
+          <p>The <b>Basenji</b> is the famous one. Its larynx is shaped differently, so instead of barking it makes a yodel-like sound called a "barroo."</p>
+          <p>A few others rarely or never bark:</p>
+          <ul><li><b>New Guinea Singing Dog</b> – howls in a melodic, almost bird-like way</li><li><b>Shiba Inu</b> – quiet, but has the infamous "Shiba scream"</li></ul>
+        </div>
+        <div class="actions"><button class="hb" title="Copy"><svg><use href="#i-copy"/></svg></button><button class="hb" title="Regenerate"><svg><use href="#i-redo"/></svg></button></div>
+      </div>
+
+      <div class="msg-user">Compare their sizes, make me a quick quiz, and a cheat sheet</div>
+      <div class="status done"><svg class="chev"><use href="#i-right"/></svg>Thought for 3s</div>
+      <div class="msg-wrap" style="display:flex;flex-direction:column;gap:10px">
+        <div class="msg-ai"><p>All three are small-to-medium dogs. The Singing Dog is the heaviest:</p></div>
+        <div class="card" id="chartCard"></div>
+        <div class="msg-ai"><p>Here's a 3-question quiz you can click through:</p></div>
+        <div class="card" id="artCard">
+          <div class="card-head"><span class="k">HTML</span><span class="t">Quiet dogs quiz</span>
+            <button class="hb" title="Copy source"><svg><use href="#i-copy"/></svg></button>
+            <button class="hb" title="Open large"><svg><use href="#i-expand"/></svg></button></div>
+          <iframe class="art" sandbox="allow-scripts" id="art"></iframe>
+        </div>
+        <div class="card"><div class="doc">
+          <div class="ic">MD</div>
+          <div class="meta"><b>Quiet breeds cheat sheet</b><span>Markdown · 14 lines</span></div>
+          <button class="pill">Copy</button><button class="pill">Save…</button>
+        </div></div>
+        <div class="actions"><button class="hb" title="Copy"><svg><use href="#i-copy"/></svg></button><button class="hb" title="Regenerate"><svg><use href="#i-redo"/></svg></button></div>
+      </div>
+    </div>
+
+    <div class="dock">
+      <div class="bar">
+        <button class="ib" title="Attach"><svg><use href="#i-plus"/></svg></button>
+        <textarea rows="1" placeholder="Ask a follow-up" id="ta"></textarea>
+        <button class="model">Sonnet <svg><use href="#i-chev"/></svg></button>
+        <button class="ib" title="Dictate"><svg><use href="#i-mic"/></svg></button>
+        <button class="send" id="send" title="Send"><svg><use href="#i-up"/></svg></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <button onclick="document.querySelector('.desk').classList.toggle('light')">Toggle light / dark wallpaper</button>
+  <button onclick="demo()">Replay: send "Why do they yodel?"</button>
+</div>
+
+<script>
+  const ta = document.getElementById('ta'), send = document.getElementById('send'), scroll = document.getElementById('scroll');
+  let streaming = null;
+
+  ta.addEventListener('input', () => {
+    ta.style.height = '30px'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+    if (!streaming) send.classList.toggle('ready', ta.value.trim().length > 0);
+  });
+  ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
+  send.onclick = () => streaming ? stop() : submit();
+
+  function toggleThoughts(el) { el.classList.toggle('open'); el.nextElementSibling.classList.toggle('open'); }
+  const el = (cls, html) => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; return d; };
+  const bottom = () => scroll.scrollTop = scroll.scrollHeight;
+
+  const REPLY = `The "yodel" comes from their <b>larynx</b>, which is shallower and narrower than in most dogs. Air passes through it differently, so you get a warbling howl instead of a sharp bark. Basenjis are an ancient breed from Central Africa, and their quietness may have helped them hunt without spooking prey.`;
+
+  function submit() {
+    const q = ta.value.trim(); if (!q || streaming) return;
+    ta.value = ''; ta.dispatchEvent(new Event('input'));
+    scroll.append(el('msg-user', q));
+    const st = el('status', '<span class="dot"></span><span class="shimmer">Thinking…</span>');
+    scroll.append(st); bottom();
+    send.classList.remove('ready'); send.classList.add('stop'); send.title = 'Stop';
+    const t0 = Date.now();
+    streaming = { timers: [] };
+    streaming.timers.push(setTimeout(() => {
+      const secs = Math.max(1, Math.round((Date.now() - t0) / 1000));
+      st.className = 'status done'; st.innerHTML = `<svg class="chev"><use href="#i-right"/></svg>Thought for ${secs}s`;
+      st.onclick = () => toggleThoughts(st);
+      st.after(el('thoughts', 'They\'re asking a follow-up about the Basenji "barroo". Explain the anatomy briefly.'));
+      const wrap = el('msg-wrap', '<div class="msg-ai"><p class="caret"></p></div><div class="actions" style="display:none"><button class="hb" title="Copy"><svg><use href="#i-copy"/></svg></button><button class="hb" title="Regenerate"><svg><use href="#i-redo"/></svg></button></div>');
+      scroll.append(wrap);
+      const p = wrap.querySelector('p'), tokens = REPLY.split(/(?<=\s)/);
+      let i = 0;
+      const tick = () => {
+        if (!streaming) return;
+        p.innerHTML = tokens.slice(0, ++i).join(''); bottom();
+        if (i < tokens.length) streaming.timers.push(setTimeout(tick, 35 + Math.random() * 40));
+        else {
+          const ph = el('card', '<div class="placeholder"><span class="shimmer">Drawing chart…</span></div>');
+          wrap.querySelector('.msg-ai').after(ph); bottom();
+          streaming.timers.push(setTimeout(() => { ph.replaceWith(chartCard(YODEL_CHART)); bottom(); finish(wrap); }, 900));
+        }
+      };
+      tick();
+    }, 1400));
+  }
+  function finish(wrap) {
+    wrap.querySelector('p').classList.remove('caret'); wrap.querySelector('.actions').style.display = '';
+    streaming = null; send.classList.remove('stop'); send.title = 'Send'; ta.dispatchEvent(new Event('input'));
+  }
+  function stop() {
+    streaming.timers.forEach(clearTimeout);
+    const last = scroll.lastElementChild;
+    if (last.classList.contains('msg-wrap')) finish(last);
+    else { last.className = 'status done'; last.textContent = 'Stopped'; streaming = null; send.classList.remove('stop'); ta.dispatchEvent(new Event('input')); }
+  }
+  // ---- widget: ```chart  (small JSON schema; Swift Charts renders it natively in the app) ----
+  function chartCard(spec) {
+    const c = document.createElement('div'); c.className = 'card';
+    const W = 500, H = 150, L = 28, B = 22, T = 14, n = spec.data.length, max = Math.ceil(Math.max(...spec.data.map(d => d.y)) / 5) * 5;
+    const bw = (W - L) / n * 0.55, step = (W - L) / n;
+    let g = '';
+    for (let i = 0; i <= 4; i++) { const y = T + (H - B - T) * i / 4, v = Math.round(max * (1 - i / 4));
+      g += `<line class="grid" x1="${L}" x2="${W}" y1="${y}" y2="${y}"/><text x="${L - 6}" y="${y + 3.5}" text-anchor="end">${v}</text>`; }
+    spec.data.forEach((d, i) => { const h = (H - B - T) * d.y / max, x = L + step * i + (step - bw) / 2, y = H - B - h;
+      g += `<rect class="bar${d.highlight ? ' hi' : ''}" x="${x}" y="${y}" width="${bw}" height="${h}" rx="5"/>
+            <text class="val" x="${x + bw / 2}" y="${y - 4}" text-anchor="middle">${d.y}</text>
+            <text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${d.x}</text>`; });
+    c.innerHTML = `<div class="card-head"><span class="k">Chart</span><span class="t">${spec.title}</span>
+      <button class="hb" title="Copy as image"><svg><use href="#i-copy"/></svg></button></div>
+      <svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg>`;
+    return c;
+  }
+  const SIZE_CHART = { type: 'bar', title: 'Average weight (kg)', data: [
+    { x: 'Basenji', y: 10, highlight: true }, { x: 'Shiba Inu', y: 9 }, { x: 'NG Singing Dog', y: 12 }, { x: 'Beagle', y: 11 }, { x: 'Husky', y: 23 } ] };
+  const YODEL_CHART = { type: 'bar', title: 'How often they vocalise (sample data)', data: [
+    { x: 'Basenji', y: 3, highlight: true }, { x: 'Shiba', y: 4 }, { x: 'Beagle', y: 9 }, { x: 'Husky', y: 8 } ] };
+  document.getElementById('chartCard').replaceWith(chartCard(SIZE_CHART));
+
+  // ---- widget: ```html  (sandboxed: scripts on, no network, no navigation) ----
+  document.getElementById('art').srcdoc = `<!doctype html><meta name="color-scheme" content="dark"><style>:root{color-scheme:dark;background:transparent}
+    body{margin:0;padding:12px 14px;font:13px -apple-system,sans-serif;color:#fff;background:transparent}
+    h3{margin:0 0 10px;font-size:14px}.o{display:block;width:100%;text-align:left;margin:5px 0;padding:8px 11px;border-radius:10px;border:0;
+    background:rgba(255,255,255,.14);color:#fff;font:13px -apple-system,sans-serif;cursor:pointer}.o:hover{background:rgba(255,255,255,.22)}
+    .ok{background:rgba(48,209,88,.55)!important}.no{background:rgba(255,69,58,.5)!important}.f{margin-top:8px;opacity:.7;font-size:12px}</style>
+    <h3 id="q"></h3><div id="os"></div><div class="f" id="f"></div><script>
+    const Q=[["Which breed 'yodels' instead of barking?",["Shiba Inu","Basenji","Beagle"],1],
+             ["Where is the Basenji from?",["Central Africa","Japan","Siberia"],0],
+             ["What's the Shiba's famous noise called?",["The barroo","The howl","The Shiba scream"],2]];
+    let i=0,s=0;function show(){if(i>=Q.length){q.textContent="Done! "+s+"/"+Q.length;os.innerHTML="";f.textContent="";return}
+    const [t,o,a]=Q[i];q.textContent=t;f.textContent="Question "+(i+1)+" of "+Q.length;os.innerHTML="";
+    o.forEach((x,k)=>{const b=document.createElement("button");b.className="o";b.textContent=x;b.onclick=()=>{b.classList.add(k===a?"ok":"no");if(k===a)s++;setTimeout(()=>{i++;show()},600)};os.append(b)})}show()<\/script>`;
+
+  function demo() { if (streaming) return; ta.value = 'Why do they yodel?'; submit(); }
+  bottom();
+</script>
+</body>
+</html>

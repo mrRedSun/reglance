@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --sf: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--sf); }
+
+  .desk {
+    position: relative; height: 230px; border-radius: var(--radius, 12px); overflow: hidden; padding: 16px;
+    display: flex; align-items: center; justify-content: center;
+    --ink: rgba(255,255,255,.95); --ink2: rgba(255,255,255,.62); --hover: rgba(255,255,255,.16);
+    background:
+      radial-gradient(60% 80% at 15% 20%, #ff7a59 0%, transparent 60%),
+      radial-gradient(50% 70% at 85% 30%, #6a5cff 0%, transparent 60%),
+      radial-gradient(60% 80% at 60% 100%, #00b3a4 0%, transparent 60%),
+      linear-gradient(135deg, #2b1a5a, #0f3d5c);
+  }
+  .desk.light {
+    --ink: rgba(0,0,0,.85); --ink2: rgba(0,0,0,.45); --hover: rgba(0,0,0,.07);
+    background:
+      radial-gradient(60% 80% at 15% 20%, #ffd2a8 0%, transparent 60%),
+      radial-gradient(50% 70% at 85% 30%, #b8c4ff 0%, transparent 60%),
+      radial-gradient(60% 80% at 60% 100%, #a8f0e0 0%, transparent 60%),
+      linear-gradient(135deg, #f4efe9, #dfe8f5);
+  }
+  .bg-text { position: absolute; left: 24px; top: 28px; right: 24px; font: 700 34px/1.15 var(--sf); color: rgba(255,255,255,.55); pointer-events: none; user-select: none; }
+  .light .bg-text { color: rgba(0,0,0,.35); }
+
+  /* liquid glass material */
+  .glass {
+    position: relative;
+    background: rgba(255,255,255,.14);
+    -webkit-backdrop-filter: blur(18px) saturate(190%);
+    backdrop-filter: blur(18px) saturate(190%);
+    box-shadow:
+      inset 0 1px 0.5px rgba(255,255,255,.75),
+      inset 0 -1px 0.5px rgba(255,255,255,.18),
+      inset 0 0 0 0.5px rgba(255,255,255,.35),
+      0 10px 30px rgba(0,0,0,.28),
+      0 1px 3px rgba(0,0,0,.18);
+  }
+  .glass.refract { backdrop-filter: url(#lg) blur(16px) saturate(190%); }
+  .glass::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.22) 0%, rgba(255,255,255,0) 55%); }
+  .light .glass { background: rgba(255,255,255,.42); box-shadow:
+      inset 0 1px 0.5px rgba(255,255,255,.95), inset 0 -1px 0.5px rgba(255,255,255,.4),
+      inset 0 0 0 0.5px rgba(0,0,0,.08), 0 10px 30px rgba(0,0,0,.14), 0 1px 3px rgba(0,0,0,.1); }
+
+  .ib { width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--ink);
+        display: grid; place-items: center; cursor: pointer; flex: none; transition: background .15s; }
+  .ib:hover { background: var(--hover); }
+  .ib svg { width: 17px; height: 17px; }
+  .model { height: 26px; padding: 0 8px 0 10px; border: 0; border-radius: 13px; background: var(--hover); color: var(--ink);
+           font: 600 12.5px var(--sf); display: flex; align-items: center; gap: 3px; cursor: pointer; flex: none; white-space: nowrap; }
+  .model svg { width: 10px; height: 10px; opacity: .7; }
+  .send { width: 30px; height: 30px; border: 0; border-radius: 50%; display: grid; place-items: center; flex: none; cursor: default;
+          background: var(--hover); color: var(--ink2); transition: background .15s, transform .1s; }
+  .send.ready { background: #0a84ff; color: #fff; cursor: pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 2px 8px rgba(10,132,255,.45); }
+  .send.ready:active { transform: scale(.92); }
+  .send svg { width: 15px; height: 15px; }
+  textarea { flex: 1; min-width: 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--ink);
+             font: 15px/20px var(--sf); padding: 5px 4px; height: 30px; max-height: 120px; caret-color: #0a84ff; }
+  textarea::placeholder { color: var(--ink2); }
+
+  /* single capsule, everything inline */
+  .bar { width: min(560px, 100%); border-radius: 22px; padding: 7px 7px 7px 8px; display: flex; align-items: flex-end; gap: 4px; }
+  .bar.multi { border-radius: 18px; }
+
+  .menu { position: absolute; top: calc(100% + 6px); border-radius: 12px; padding: 4px; min-width: 150px; display: none; z-index: 5; }
+  .menu.open { display: block; }
+  .menu div { padding: 6px 10px; border-radius: 7px; font: 13px var(--sf); color: var(--ink); cursor: pointer; }
+  .menu div:hover { background: #0a84ff; color: #fff; }
+
+  .toolbar { display: flex; gap: 8px; margin-top: 10px; }
+  .toolbar button { font: 12px var(--sf); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border, #444); background: transparent; color: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <filter id="lg" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.008 0.02" numOctaves="1" seed="3" result="n"/>
+    <feGaussianBlur in="n" stdDeviation="2" result="nb"/>
+    <feDisplacementMap in="SourceGraphic" in2="nb" scale="18" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></g></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+</svg>
+
+<div class="desk">
+  <div class="bg-text">Which dogs can't bark?<br>Basenji · Shiba · New Guinea Singing Dog</div>
+  <div class="glass bar">
+    <button class="ib" title="Attach"><svg><use href="#i-plus"/></svg></button>
+    <textarea rows="1" placeholder="Ask anything"></textarea>
+    <div style="position:relative">
+      <button class="model" onclick="toggleMenu(this)">Sonnet <svg><use href="#i-chev"/></svg></button>
+      <div class="glass menu"><div>Haiku · instant</div><div>Sonnet</div><div>Opus · thinking</div></div>
+    </div>
+    <button class="ib" title="Dictate"><svg><use href="#i-mic"/></svg></button>
+    <button class="send" title="Send"><svg><use href="#i-up"/></svg></button>
+  </div>
+</div>
+
+<div class="toolbar">
+  <button onclick="document.querySelector('.desk').classList.toggle('light')">Toggle light / dark wallpaper</button>
+  <button onclick="document.querySelectorAll('.glass').forEach(g=>g.classList.toggle('refract'))">Toggle refraction</button>
+</div>
+
+<script>
+  if (/Chrome\//.test(navigator.userAgent)) document.querySelectorAll('.glass:not(.menu)').forEach(g => g.classList.add('refract'));
+  const t = document.querySelector('textarea'), send = document.querySelector('.send'), bar = document.querySelector('.bar');
+  t.addEventListener('input', () => {
+    t.style.height = '30px';
+    t.style.height = Math.min(t.scrollHeight, 120) + 'px';
+    send.classList.toggle('ready', t.value.trim().length > 0);
+    bar.classList.toggle('multi', t.scrollHeight > 34);
+  });
+  function toggleMenu(btn) {
+    const m = btn.nextElementSibling; m.classList.toggle('open');
+    m.querySelectorAll('div').forEach(d => d.onclick = () => { btn.firstChild.textContent = d.textContent.split(' ·')[0] + ' '; m.classList.remove('open'); });
+  }
+</script>
+</body>
+</html>
