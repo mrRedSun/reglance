@@ -6,10 +6,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let chats = AppDelegate.makeChats()
     private let bar = FloatingBarModel()
     private lazy var mainWindow = MainWindowController(chats: chats)
-    private lazy var settingsWindow = SettingsWindowController()
+    private lazy var settingsWindow = SettingsWindowController(hotKey: hotKeySettings)
     private var panel: FloatingPanelController!
     private var hotKey: HotKey?
+    private var hotKeySettings: HotKeySettings!
     private var statusItem: NSStatusItem?
+    private var showPanelItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = makeMainMenu()
@@ -18,12 +20,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.panel.hide()
             self?.mainWindow.show(chatID: chatID)
         }
-        hotKey = HotKey(keyCode: kVK_Space, modifiers: optionKey) { [weak self] in self?.panel.toggle() }
+        hotKeySettings = HotKeySettings { [weak self] combo in self?.registerHotKey(combo) ?? false }
         if let scene = DemoScene.fromEnvironment() {
             scene.run(chats: chats, panel: panel, bar: bar, mainWindow: mainWindow)
         } else {
             mainWindow.show()
         }
+    }
+
+    /// Replaces the global hotkey and the menu bar item's shortcut label. Nil only unregisters.
+    private func registerHotKey(_ combo: HotKeyCombo?) -> Bool {
+        hotKey = nil
+        guard let combo else { return true }
+        hotKey = HotKey(keyCode: Int(combo.keyCode), modifiers: Int(combo.modifiers)) { [weak self] in
+            self?.panel.toggle()
+        }
+        guard hotKey != nil else { return false }
+        showPanelItem?.keyEquivalent = combo.keyEquivalent
+        showPanelItem?.keyEquivalentModifierMask = combo.menuModifiers
+        return true
     }
 
     /// Demo mode swaps the saved chats and Claude for made-up chats and canned replies.
@@ -56,9 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "bubble.left.and.text.bubble.right", accessibilityDescription: "Reglance")
         let menu = NSMenu()
-        let show = menu.addItem(withTitle: "Show Prompt Bar", action: #selector(showPanel), keyEquivalent: " ")
-        show.keyEquivalentModifierMask = .option
+        let show = menu.addItem(withTitle: "Show Prompt Bar", action: #selector(showPanel), keyEquivalent: "")
         show.target = self
+        showPanelItem = show
         menu.addItem(withTitle: "Open Chats…", action: #selector(openMainWindow), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: "").target = self
         menu.addItem(.separator())

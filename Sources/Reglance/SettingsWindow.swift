@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import ChatCore
 import Observation
 import ServiceManagement
@@ -66,16 +67,19 @@ final class ProviderDoctor {
 
 final class SettingsWindowController {
     private let settings = LoginSettings()
+    private let hotKey: HotKeySettings
     private let doctor = ProviderDoctor()
     private lazy var window: NSWindow = {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 230),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Reglance Settings"
-        window.contentViewController = NSHostingController(rootView: SettingsView(settings: settings, doctor: doctor))
+        window.contentViewController = NSHostingController(rootView: SettingsView(settings: settings, hotKey: hotKey, doctor: doctor))
         window.isReleasedWhenClosed = false
         window.center()
         return window
     }()
+
+    init(hotKey: HotKeySettings) { self.hotKey = hotKey }
 
     func show() {
         settings.refresh()
@@ -87,6 +91,7 @@ final class SettingsWindowController {
 
 private struct SettingsView: View {
     let settings: LoginSettings
+    let hotKey: HotKeySettings
     let doctor: ProviderDoctor
 
     var body: some View {
@@ -110,6 +115,26 @@ private struct SettingsView: View {
                 }
             } header: {
                 Text("General")
+            }
+            Section {
+                LabeledContent("Show or hide the chat bar") {
+                    HStack {
+                        ShortcutRecorder(settings: hotKey)
+                        if hotKey.combo != .default {
+                            Button("Reset") { hotKey.reset() }
+                        }
+                    }
+                }
+                Text(hotKey.isRecording
+                     ? "Press a shortcut that includes ⌘, ⌥ or ⌃. Esc cancels."
+                     : "Works in any app.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                if let error = hotKey.error {
+                    Text(error).font(.callout).foregroundStyle(.red)
+                }
+            } header: {
+                Text("Shortcut")
             }
             ProviderSection(doctor: doctor)
         }
@@ -180,5 +205,47 @@ private extension DoctorCheck.Status {
         case .warning: .yellow
         case .failed: .red
         }
+    }
+}
+
+/// Click, then press the new shortcut. Keys go to a local monitor while recording, so the
+/// shortcut is captured instead of typed or run as a menu command.
+private struct ShortcutRecorder: View {
+    let settings: HotKeySettings
+    @State private var monitor: Any?
+
+    var body: some View {
+        Button(settings.isRecording ? "Type Shortcut…" : settings.combo.displayString) {
+            settings.isRecording ? stop() : start()
+        }
+        .frame(minWidth: 110)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in stop() }
+        .onDisappear { stop() }
+    }
+
+    private func start() {
+        settings.startRecording()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if event.keyCode == UInt16(kVK_Escape), flags.isDisjoint(with: [.command, .option, .control, .shift]) {
+                stop()
+            } else if let combo = HotKeyCombo(event: event) {
+                removeMonitor()
+                settings.record(combo)
+            } else {
+                NSSound.beep()
+            }
+            return nil
+        }
+    }
+
+    private func stop() {
+        removeMonitor()
+        settings.cancelRecording()
+    }
+
+    private func removeMonitor() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }

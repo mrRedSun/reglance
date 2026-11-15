@@ -90,7 +90,7 @@ Everything is stored under `~/Library/Application Support/Reglance/`:
 ## Code layout
 
 - `Sources/ChatCore`: no UI. `ClaudeClient` (subprocess, stream-json parsing, cancel), `SystemPrompt`, `ClaudeLocator`, `Chat`/`Message`, `Attachment`, `ReplyContent` (splits replies into markdown and widget blocks), `ChatStore` (JSON persistence), `ChatController` (shared observable state), `DemoMode` and `DemoContent`.
-- `Sources/Reglance`: the app. `FloatingPanel` (non-activating panel), `HotKey` (Carbon global hotkey, no Accessibility permission needed), `PromptBarView` (the one composer both windows use), `ReplyView` (expanded panel and `MessageView`, which renders every message in both windows), `ReplyBody` (markdown, chart and document cards), `HTMLWidget` (sandboxed web view), `Attachments`, `PromptEditor` (native text and screenshot paste), `MainWindow`, `SettingsWindow` (login-item settings and the provider doctor, whose checks live in `ChatCore/ClaudeDoctor`), `AgentMode` (agent-mode warning, folder picker, red badge), `DemoScene` (README shots), `WindowDragRegion`, `MarkdownText`.
+- `Sources/Reglance`: the app. `FloatingPanel` (non-activating panel), `HotKey` (Carbon global hotkey, no Accessibility permission needed, and the saved shortcut), `PromptBarView` (the one composer both windows use), `ReplyView` (expanded panel and `MessageView`, which renders every message in both windows), `ReplyBody` (markdown, chart and document cards), `HTMLWidget` (sandboxed web view), `Attachments`, `PromptEditor` (native text and screenshot paste), `MainWindow`, `SettingsWindow` (login item, shortcut recorder and the provider doctor, whose checks live in `ChatCore/ClaudeDoctor`), `AgentMode` (agent-mode warning, folder picker, red badge), `DemoScene` (README shots), `WindowDragRegion`, `MarkdownText`.
 - `Sources/reglance-cli`: the terminal client.
 - `Formula/reglance.rb`: the Homebrew formula. `scripts/build-app.sh` does the same build locally.
 - `scripts/make-icon.swift`: draws the app icon and writes `Resources/AppIcon.icns`. Rerun it after changing the drawing.
@@ -104,4 +104,3 @@ Homebrew builds from source: `Formula/reglance.rb` points at a tagged tarball an
 ## Not done yet
 
 - Dictation.
-- The ⌥Space shortcut is fixed and can't be changed in settings.

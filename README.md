@@ -147,7 +147,7 @@ Your chats stay in `~/Library/Application Support/Reglance`. Delete that folder 
 
 | Key | Action |
 | --- | --- |
-| ⌥Space | Show or hide the bar |
+| ⌥Space | Show or hide the bar (change it in Settings) |
 | Return | Send |
 | ⇧Return or ⌥Return | New line |
 | Esc | Hide the bar |
@@ -167,7 +167,7 @@ The composer menu has separate Model and Effort choices. Automatic uses the CLI'
 
 Drag the floating bar by its title, or by the top or left edge of the collapsed bar. Images are scaled down to 1568px on the long edge. PDFs and other files can be up to 10 MB, and text files up to 1 MB.
 
-Reglance is a regular Mac app with a Dock icon, a chats window and a menu bar icon. Closing the chats window keeps the bar available; ⌘Q quits. In Settings you can turn on Open at login, and check that Claude Code is installed and signed in. The check also shows the full `claude doctor` report.
+Reglance is a regular Mac app with a Dock icon, a chats window and a menu bar icon. Closing the chats window keeps the bar available; ⌘Q quits. In Settings you can turn on Open at login, change the ⌥Space shortcut, and check that Claude Code is installed and signed in. The check also shows the full `claude doctor` report.
 
 </details>
 
