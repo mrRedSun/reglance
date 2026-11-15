@@ -2,8 +2,8 @@
 class Reglance < Formula
   desc "Floating Liquid Glass chat bar for quick questions to Claude"
   homepage "https://github.com/mrRedSun/reglance"
-  url "https://github.com/mrRedSun/reglance/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "c978ace9a6a17505a73576b16d0cfb958773f7cf3c9503ab15be23e923e337b7"
+  url "https://github.com/mrRedSun/reglance/archive/refs/tags/v0.2.0.tar.gz"
+  sha256 "9bb7c478c4d276ae621a58b0758bccbaaecb6c14590cead40d21ecff157f5379"
   license "MIT"
   head "https://github.com/mrRedSun/reglance.git", branch: "main"
 
