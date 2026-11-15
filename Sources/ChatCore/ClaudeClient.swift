@@ -149,7 +149,7 @@ public struct ClaudeClient: ClaudeStreamingClient {
     }
 
     /// A `claude` process with a PATH that can find `node` (GUI apps get a minimal PATH).
-    private static func process(executable: URL, arguments: [String], workingDirectory: URL) -> Process {
+    static func process(executable: URL, arguments: [String], workingDirectory: URL) -> Process {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -288,7 +288,7 @@ public struct ClaudeClient: ClaudeStreamingClient {
 }
 
 /// `Process` isn't Sendable; this only exposes `terminate()`, which is safe from any thread.
-private final class ProcessHandle: @unchecked Sendable {
+final class ProcessHandle: @unchecked Sendable {
     private let process: Process
     init(_ process: Process) { self.process = process }
     func terminate() { if process.isRunning { process.terminate() } }

@@ -1,4 +1,5 @@
 import AppKit
+import ChatCore
 import Observation
 import ServiceManagement
 import SwiftUI
@@ -48,13 +49,29 @@ final class LoginSettings {
     }
 }
 
+/// Health of the providers Reglance runs on. For now only Claude Code.
+@MainActor
+@Observable
+final class ProviderDoctor {
+    private(set) var report: DoctorReport?
+    private(set) var isRunning = false
+
+    func run() async {
+        guard !isRunning else { return }
+        isRunning = true
+        defer { isRunning = false }
+        report = await ClaudeDoctor.run(executable: Task.detached { ClaudeLocator.executableURL() }.value)
+    }
+}
+
 final class SettingsWindowController {
     private let settings = LoginSettings()
+    private let doctor = ProviderDoctor()
     private lazy var window: NSWindow = {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 230),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Reglance Settings"
-        window.contentViewController = NSHostingController(rootView: SettingsView(settings: settings))
+        window.contentViewController = NSHostingController(rootView: SettingsView(settings: settings, doctor: doctor))
         window.isReleasedWhenClosed = false
         window.center()
         return window
@@ -62,6 +79,7 @@ final class SettingsWindowController {
 
     func show() {
         settings.refresh()
+        Task { await doctor.run() }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }
@@ -69,6 +87,7 @@ final class SettingsWindowController {
 
 private struct SettingsView: View {
     let settings: LoginSettings
+    let doctor: ProviderDoctor
 
     var body: some View {
         Form {
@@ -92,12 +111,74 @@ private struct SettingsView: View {
             } header: {
                 Text("General")
             }
+            ProviderSection(doctor: doctor)
         }
         .formStyle(.grouped)
         .frame(width: 480)
         .fixedSize(horizontal: true, vertical: true)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             settings.refresh()
+        }
+    }
+}
+
+private struct ProviderSection: View {
+    let doctor: ProviderDoctor
+
+    var body: some View {
+        Section {
+            LabeledContent("Claude Code") {
+                if doctor.isRunning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("Check Again") { Task { await doctor.run() } }
+                }
+            }
+            ForEach(doctor.report?.checks ?? []) { check in
+                LabeledContent {
+                    Text(check.detail)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .textSelection(.enabled)
+                } label: {
+                    Label {
+                        Text(check.title)
+                    } icon: {
+                        Image(systemName: check.status.symbol).foregroundStyle(check.status.color)
+                    }
+                }
+            }
+            if let fullReport = doctor.report?.fullReport {
+                DisclosureGroup("claude doctor output") {
+                    ScrollView {
+                        Text(fullReport)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 200)
+                }
+            }
+        } header: {
+            Text("Providers")
+        }
+    }
+}
+
+private extension DoctorCheck.Status {
+    var symbol: String {
+        switch self {
+        case .ok: "checkmark.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .failed: "xmark.octagon.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .ok: .green
+        case .warning: .yellow
+        case .failed: .red
         }
     }
 }
