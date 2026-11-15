@@ -166,7 +166,7 @@ public enum DemoContent {
     /// The library a demo starts with, newest first, with dates relative to `now`.
     static func chats(now: Date) -> [Chat] {
         func chat(_ reply: Reply, hoursAgo: Double, pinned: Bool = false, archived: Bool = false,
-                  model: ClaudeModel = .sonnet, agentDirectory: URL? = nil) -> Chat {
+                  model: ChatModel = .sonnet, agentDirectory: URL? = nil) -> Chat {
             let asked = now.addingTimeInterval(-hoursAgo * 3600)
             var chat = Chat(firstMessage: reply.question, model: model, agentDirectory: agentDirectory)
             chat.title = reply.title

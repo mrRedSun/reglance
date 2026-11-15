@@ -3,8 +3,8 @@ import ChatCore
 import Testing
 @testable import Reglance
 
-private struct TransitionTestClient: ClaudeStreamingClient {
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
+private struct TransitionTestClient: ChatStreamingClient {
+    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
         AsyncThrowingStream { continuation in
             continuation.yield(.session(id: "transition-test-session"))
             continuation.yield(.text("Hello."))

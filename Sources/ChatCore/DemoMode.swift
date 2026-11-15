@@ -26,7 +26,7 @@ public enum DemoMode {
 }
 
 /// Streams canned replies (`DemoContent.reply(to:)`) at roughly the pace of a real model.
-public struct DemoClient: ClaudeStreamingClient {
+public struct DemoClient: ChatStreamingClient {
     /// Delay between streamed words.
     let wordDelay: Duration
 
@@ -34,8 +34,8 @@ public struct DemoClient: ClaudeStreamingClient {
         self.wordDelay = wordDelay
     }
 
-    public func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?,
-                     agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
+                     agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
         let question = content.compactMap { block -> String? in
             if case .text(let text) = block { text } else { nil }
         }.joined(separator: "\n")
@@ -70,7 +70,7 @@ public struct DemoClient: ClaudeStreamingClient {
         }
     }
 
-    public func title(question: String, answer: String) async -> String? {
+    public func title(question: String, answer: String, model: ChatModel) async -> String? {
         DemoContent.reply(to: question).title
     }
 }

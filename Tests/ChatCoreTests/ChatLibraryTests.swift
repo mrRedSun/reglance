@@ -6,10 +6,10 @@ private func libraryStore() -> ChatStore {
     ChatStore(directory: FileManager.default.temporaryDirectory.appending(path: "reglance-library-tests-\(UUID().uuidString)"))
 }
 
-private struct TestClaudeClient: ClaudeStreamingClient {
-    let stream: AsyncThrowingStream<ClaudeEvent, Error>
+private struct TestClaudeClient: ChatStreamingClient {
+    let stream: AsyncThrowingStream<ChatEvent, Error>
 
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
         stream
     }
 }
@@ -41,11 +41,11 @@ private struct TestClaudeClient: ClaudeStreamingClient {
 }
 
 @Test func effortArgumentsPreserveEveryModel() {
-    #expect(ClaudeEffort.allCases.map(\.rawValue) == ["automatic", "low", "medium", "high", "xhigh", "max"])
-    for model in ClaudeModel.allCases {
-        for effort in ClaudeEffort.allCases {
+    #expect(ClaudeBackend.claudeEfforts.map(\.rawValue) == ["automatic", "low", "medium", "high", "xhigh", "max"])
+    for model in ClaudeModel.allCases.map(\.rawValue) {
+        for effort in ClaudeBackend.claudeEfforts {
             let args = ClaudeClient.arguments(model: model, effort: effort, resume: "session")
-            #expect(args[args.firstIndex(of: "--model")! + 1] == model.rawValue)
+            #expect(args[args.firstIndex(of: "--model")! + 1] == model)
             #expect(!args.contains("--fallback-model"))
             if effort == .automatic {
                 #expect(!args.contains("--effort"))
@@ -55,7 +55,7 @@ private struct TestClaudeClient: ClaudeStreamingClient {
             #expect(args.suffix(3) == ["--resume", "session", "--fork-session"])
         }
     }
-    #expect(!ClaudeClient.arguments(model: .sonnet, resume: nil).contains("--effort"))
+    #expect(!ClaudeClient.arguments(model: ClaudeModel.sonnet.rawValue, resume: nil).contains("--effort"))
 }
 
 @MainActor @Test func libraryOperationsPersistAndSort() throws {
@@ -115,7 +115,7 @@ private struct TestClaudeClient: ClaudeStreamingClient {
 @MainActor @Test func deletingStreamingChatCannotResaveIt() async throws {
     let store = libraryStore()
     defer { try? FileManager.default.removeItem(at: store.directory) }
-    let (stream, continuation) = AsyncThrowingStream<ClaudeEvent, Error>.makeStream()
+    let (stream, continuation) = AsyncThrowingStream<ChatEvent, Error>.makeStream()
     let controller = ChatController(store: store, client: TestClaudeClient(stream: stream))
     let other = Chat(firstMessage: "Keep", model: .haiku)
     try store.save(other)
@@ -135,18 +135,18 @@ private struct TestClaudeClient: ClaudeStreamingClient {
 
 private actor RecordedRequests {
     struct Request: Sendable {
-        let model: ClaudeModel
-        let effort: ClaudeEffort
+        let model: ChatModel
+        let effort: Effort
         let resume: String?
     }
     private(set) var values: [Request] = []
     func add(_ request: Request) { values.append(request) }
 }
 
-private struct RecordingClaudeClient: ClaudeStreamingClient {
+private struct RecordingClaudeClient: ChatStreamingClient {
     let requests: RecordedRequests
 
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 await requests.add(.init(model: model, effort: effort, resume: sessionID))
@@ -208,7 +208,7 @@ private struct RecordingClaudeClient: ClaudeStreamingClient {
 @MainActor @Test func metadataEditsDuringStreamingSurviveCompletion() async throws {
     let store = libraryStore()
     defer { try? FileManager.default.removeItem(at: store.directory) }
-    let (stream, continuation) = AsyncThrowingStream<ClaudeEvent, Error>.makeStream()
+    let (stream, continuation) = AsyncThrowingStream<ChatEvent, Error>.makeStream()
     let controller = ChatController(store: store, client: TestClaudeClient(stream: stream))
     let id = controller.send("Original title", model: .opus, effort: .high, to: nil)
     controller.rename(id, to: "Renamed while streaming")

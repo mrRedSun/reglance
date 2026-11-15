@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.panel.hide()
             self?.mainWindow.show(chatID: chatID)
         }
+        Task { await ModelLibrary.shared.refresh() }
         hotKeySettings = HotKeySettings { [weak self] combo in self?.registerHotKey(combo) ?? false }
         if let scene = DemoScene.fromEnvironment() {
             scene.run(chats: chats, panel: panel, bar: bar, mainWindow: mainWindow)

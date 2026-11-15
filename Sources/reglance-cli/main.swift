@@ -3,19 +3,19 @@ import Foundation
 
 // Debug entry point that runs the same ChatController/ClaudeClient path as the app.
 //
-//   reglance-cli ask [--model haiku|sonnet|opus] [--effort automatic|low|medium|high|xhigh|max] [--chat <chat-id>] [--agent <folder>] [--attach <path>]… [--stop-after <seconds>] <question>
+//   reglance-cli ask [--model haiku|sonnet|opus|codex:<model>|opencode:<provider/model>] [--effort automatic|minimal|low|medium|high|xhigh|max] [--chat <chat-id>] [--agent <folder>] [--attach <path>]… [--stop-after <seconds>] <question>
 //       Streams the reply to stdout and saves the chat like the app does.
 //       --agent starts an agent chat in <folder>: full Claude Code, in auto mode.
 //       --chat continues an existing chat (uses --resume with its session id).
 //       --attach sends a file (image, PDF, or text) with the question; repeatable.
 //       --stop-after cancels the reply after N seconds, like the stop button.
-//   reglance-cli regenerate <chat-id> [--effort automatic|low|medium|high|xhigh|max]
+//   reglance-cli regenerate <chat-id> [--effort automatic|minimal|low|medium|high|xhigh|max]
 //       Replaces the chat's last reply with a new one, like the regenerate button.
 //   reglance-cli list
 //       Lists saved chats.
 
 func usage() -> Never {
-    print("usage: reglance-cli ask [--model haiku|sonnet|opus] [--effort automatic|low|medium|high|xhigh|max] [--chat <chat-id>] [--agent <folder>] [--attach <path>]… [--stop-after <seconds>] <question>\n       reglance-cli regenerate <chat-id> [--effort automatic|low|medium|high|xhigh|max]\n       reglance-cli list")
+    print("usage: reglance-cli ask [--model haiku|sonnet|opus|codex:<model>|opencode:<provider/model>] [--effort automatic|minimal|low|medium|high|xhigh|max] [--chat <chat-id>] [--agent <folder>] [--attach <path>]… [--stop-after <seconds>] <question>\n       reglance-cli regenerate <chat-id> [--effort automatic|minimal|low|medium|high|xhigh|max]\n       reglance-cli list")
     exit(2)
 }
 
@@ -28,12 +28,12 @@ let controller = ChatController()
 switch command {
 case "list":
     for chat in controller.chats {
-        print("\(chat.id)  \(chat.updatedAt.formatted())  \(chat.model.displayName)  \(chat.agentDirectory.map { "agent=\($0.path)" } ?? "chat")  session=\(chat.sessionID ?? "-")  \"\(chat.title)\" (\(chat.messages.count) messages)")
+        print("\(chat.id)  \(chat.updatedAt.formatted())  \(chat.backend.rawValue):\(chat.model.id)  \(chat.agentDirectory.map { "agent=\($0.path)" } ?? "chat")  session=\(chat.sessionID ?? "-")  \"\(chat.title)\" (\(chat.messages.count) messages)")
     }
 
 case "ask":
-    var model: ClaudeModel?
-    var effort: ClaudeEffort?
+    var model: ChatModel?
+    var effort: Effort?
     var chatID: UUID?
     var stopAfter: Double?
     var agentDirectory: URL?
@@ -43,10 +43,10 @@ case "ask":
         let arg = args.removeFirst()
         switch arg {
         case "--model":
-            guard let name = args.first, let m = ClaudeModel.allCases.first(where: { $0.displayName.lowercased() == name }) else { usage() }
+            guard let name = args.first, let m = ChatModel(argument: name) else { usage() }
             model = m; args.removeFirst()
         case "--effort":
-            guard let raw = args.first, let value = ClaudeEffort(rawValue: raw) else { usage() }
+            guard let raw = args.first, let value = Effort(rawValue: raw) else { usage() }
             effort = value; args.removeFirst()
         case "--chat":
             guard let raw = args.first, let id = UUID(uuidString: raw), controller.chat(id) != nil else {
@@ -85,9 +85,9 @@ case "ask":
 case "regenerate":
     guard let raw = args.first, let id = UUID(uuidString: raw) else { usage() }
     args.removeFirst()
-    var effort: ClaudeEffort?
+    var effort: Effort?
     if !args.isEmpty {
-        guard args.count == 2, args[0] == "--effort", let value = ClaudeEffort(rawValue: args[1]) else { usage() }
+        guard args.count == 2, args[0] == "--effort", let value = Effort(rawValue: args[1]) else { usage() }
         effort = value
     }
     guard controller.canRegenerate(id) else { print("can't regenerate this chat"); exit(1) }

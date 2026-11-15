@@ -4,8 +4,8 @@ import SwiftUI
 
 /// The pill grows into the picker card (see `modelPickerOverlay`).
 struct ModelPickerPill: View {
-    let model: ClaudeModel
-    let effort: ClaudeEffort
+    let model: ChatModel
+    let effort: Effort
     let isExpanded: Bool
     let action: () -> Void
     @Environment(\.modelPickerNamespace) private var heroNamespace
@@ -48,15 +48,26 @@ struct ModelPickerPill: View {
 }
 
 struct ModelPickerPanel: View {
-    @Binding var model: ClaudeModel
-    @Binding var effort: ClaudeEffort
+    @Binding var model: ChatModel
+    @Binding var effort: Effort
+    /// Set when only one backend's models may be chosen: an open chat's, or Claude for a
+    /// new agent chat.
+    var backend: Backend? = nil
     let onDone: () -> Void
+    private var library: ModelLibrary { .shared }
+
+    private var backends: [Backend] {
+        if let backend { return [backend] }
+        return library.backends
+    }
+
+    private var efforts: [Effort] { library.efforts(for: model) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "slider.horizontal.3").foregroundStyle(.secondary)
-                Text("Model & effort").font(.system(size: 13, weight: .semibold))
+                Text(efforts.count > 1 ? "Model & effort" : "Model").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Button("Done", action: onDone)
                     .font(.system(size: 12, weight: .semibold))
@@ -68,47 +79,32 @@ struct ModelPickerPanel: View {
             }
 
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
-                    sectionTitle("Model")
-                    ForEach(ClaudeModel.allCases) { choice in
-                        PickerChoice(isSelected: model == choice, action: { model = choice; onDone() }) {
-                            HStack(spacing: 9) {
-                                Image(systemName: choice.pickerSymbol)
-                                    .font(.system(size: 15))
-                                    .frame(width: 20)
-                                    .foregroundStyle(model == choice ? Color.accentColor : .secondary)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("\(choice.displayName) 5.5").font(.system(size: 13, weight: .medium))
-                                    Text(choice.pickerDetail).font(.system(size: 11)).foregroundStyle(.secondary)
-                                }
+                modelColumn
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if efforts.count > 1 {
+                    RoundedRectangle(cornerRadius: 0.5)
+                        .fill(.separator)
+                        .frame(width: 1)
+                        .frame(maxHeight: .infinity)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        sectionTitle("Effort").padding(.bottom, 3)
+                        ForEach(efforts) { level in
+                            PickerChoice(isSelected: effort == level, verticalPadding: 6, action: { effort = level; onDone() }) {
+                                Text(level.displayName).font(.system(size: 12, weight: effort == level ? .medium : .regular))
                             }
+                            .accessibilityLabel("\(level.displayName) effort")
+                            .accessibilityValue(effort == level ? "Selected" : "")
                         }
-                        .accessibilityLabel("\(choice.displayName) 5.5")
-                        .accessibilityValue(model == choice ? "Selected" : "")
                     }
+                    .frame(width: 156, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                RoundedRectangle(cornerRadius: 0.5)
-                    .fill(.separator)
-                    .frame(width: 1)
-                    .frame(maxHeight: .infinity)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    sectionTitle("Effort").padding(.bottom, 3)
-                    ForEach(ClaudeEffort.allCases) { level in
-                        PickerChoice(isSelected: effort == level, verticalPadding: 6, action: { effort = level; onDone() }) {
-                            Text(level.displayName).font(.system(size: 12, weight: effort == level ? .medium : .regular))
-                        }
-                        .accessibilityLabel("\(level.displayName) effort")
-                        .accessibilityValue(effort == level ? "Selected" : "")
-                    }
-                }
-                .frame(width: 156, alignment: .leading)
             }
             .fixedSize(horizontal: false, vertical: true)
 
-            Text("More effort allows deeper reasoning and can take longer.")
+            Text(efforts.count > 1 ? "More effort allows deeper reasoning and can take longer."
+                                   : "This model doesn't offer effort levels.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -116,6 +112,47 @@ struct ModelPickerPanel: View {
         .padding(14)
         .frame(width: 438)
         .accessibilityElement(children: .contain)
+        // A model from another backend, or one without the chosen effort, falls back to Automatic.
+        .onChange(of: model) { _, model in
+            if !library.efforts(for: model).contains(effort) { effort = .automatic }
+        }
+    }
+
+    /// Long lists (OpenCode can offer many models) scroll instead of growing past the screen.
+    @ViewBuilder private var modelColumn: some View {
+        let rows = backends.reduce(0) { $0 + (library.options[$1]?.count ?? 0) }
+        if rows > 6 {
+            ScrollView { modelList }.frame(height: 330)
+        } else {
+            modelList
+        }
+    }
+
+    private var modelList: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(backends) { backend in
+                // One backend keeps the original single "Model" column.
+                sectionTitle(backends.count > 1 ? backend.displayName : "Model")
+                ForEach(library.options[backend] ?? []) { choice in
+                    PickerChoice(isSelected: model == choice.model, action: { model = choice.model; onDone() }) {
+                        HStack(spacing: 9) {
+                            Image(systemName: choice.symbol)
+                                .font(.system(size: 15))
+                                .frame(width: 20)
+                                .foregroundStyle(model == choice.model ? Color.accentColor : .secondary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(choice.name).font(.system(size: 13, weight: .medium))
+                                if !choice.detail.isEmpty {
+                                    Text(choice.detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .accessibilityLabel(choice.name)
+                    .accessibilityValue(model == choice.model ? "Selected" : "")
+                }
+            }
+        }
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -149,18 +186,19 @@ extension View {
     /// with its bottom-trailing corner on the pill's. Apply outside the
     /// GlassEffectContainer that holds the pill: the card is its own glass layer,
     /// because overlapping glass in one container fuses into a single shape.
-    func modelPickerOverlay(isPresented: Bool, model: Binding<ClaudeModel>, effort: Binding<ClaudeEffort>,
+    func modelPickerOverlay(isPresented: Bool, model: Binding<ChatModel>, effort: Binding<Effort>, backend: Backend?,
                             reduceMotion: Bool, onDone: @escaping () -> Void,
                             onFrame: @escaping (CGRect) -> Void = { _ in }) -> some View {
-        modifier(ModelPickerOverlay(isPresented: isPresented, model: model, effort: effort,
+        modifier(ModelPickerOverlay(isPresented: isPresented, model: model, effort: effort, backend: backend,
                                     reduceMotion: reduceMotion, onDone: onDone, onFrame: onFrame))
     }
 }
 
 private struct ModelPickerOverlay: ViewModifier {
     let isPresented: Bool
-    @Binding var model: ClaudeModel
-    @Binding var effort: ClaudeEffort
+    @Binding var model: ChatModel
+    @Binding var effort: Effort
+    let backend: Backend?
     let reduceMotion: Bool
     let onDone: () -> Void
     let onFrame: (CGRect) -> Void
@@ -199,12 +237,12 @@ private struct ModelPickerOverlay: ViewModifier {
             if isPresented {
                 // An invisible copy sizes the card; the visible card is one glass shape that
                 // grows from the pill's frame and reveals the contents as it grows.
-                ModelPickerPanel(model: $model, effort: $effort, onDone: onDone)
+                ModelPickerPanel(model: $model, effort: $effort, backend: backend, onDone: onDone)
                     .hidden()
                     .overlay(alignment: .bottomTrailing) {
                         Color.clear
                             .overlay(alignment: .bottomTrailing) {
-                                ModelPickerPanel(model: $model, effort: $effort, onDone: onDone)
+                                ModelPickerPanel(model: $model, effort: $effort, backend: backend, onDone: onDone)
                                     .fixedSize()
                                     .modifier(PickerContentsReveal())
                             }
@@ -318,23 +356,5 @@ private struct PickerChoice<Content: View>: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-    }
-}
-
-private extension ClaudeModel {
-    var pickerSymbol: String {
-        switch self {
-        case .haiku: "bolt"
-        case .sonnet: "sparkles"
-        case .opus: "brain"
-        }
-    }
-
-    var pickerDetail: String {
-        switch self {
-        case .haiku: "Quick answers"
-        case .sonnet: "Everyday balance"
-        case .opus: "Deeper reasoning"
-        }
     }
 }

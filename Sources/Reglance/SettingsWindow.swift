@@ -50,18 +50,25 @@ final class LoginSettings {
     }
 }
 
-/// Health of the providers Reglance runs on. For now only Claude Code.
+/// Health of the backends Reglance runs on.
 @MainActor
 @Observable
 final class ProviderDoctor {
-    private(set) var report: DoctorReport?
+    private(set) var reports: [Backend: DoctorReport] = [:]
     private(set) var isRunning = false
 
     func run() async {
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
-        report = await ClaudeDoctor.run(executable: Task.detached { ClaudeLocator.executableURL() }.value)
+        await withTaskGroup(of: (Backend, DoctorReport).self) { group in
+            for backend in Backend.allCases {
+                group.addTask { (backend, await backend.doctor()) }
+            }
+            for await (backend, report) in group { reports[backend] = report }
+        }
+        // A backend that was just installed or signed in shows up in the picker.
+        await ModelLibrary.shared.refresh()
     }
 }
 
@@ -156,7 +163,7 @@ private struct SettingsView: View {
                     .scrollContentBackground(.hidden)
                     .frame(height: 84)
                     .accessibilityLabel("Personal preferences")
-                Text("What Claude should know about you and how you like answers, such as your language, "
+                Text("What the model should know about you and how you like answers, such as your language, "
                      + "expertise or tone. Added to every chat, including agent chats, from your next message.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -191,41 +198,47 @@ private struct ProviderSection: View {
     let doctor: ProviderDoctor
 
     var body: some View {
-        Section {
-            LabeledContent("Claude Code") {
-                if doctor.isRunning {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button("Check Again") { Task { await doctor.run() } }
-                }
-            }
-            ForEach(doctor.report?.checks ?? []) { check in
-                LabeledContent {
-                    Text(check.detail)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.trailing)
-                        .textSelection(.enabled)
-                } label: {
-                    Label {
-                        Text(check.title)
-                    } icon: {
-                        Image(systemName: check.status.symbol).foregroundStyle(check.status.color)
-                    }
-                }
-            }
-            if let fullReport = doctor.report?.fullReport {
-                DisclosureGroup("claude doctor output") {
-                    ScrollView {
-                        Text(fullReport)
-                            .font(.system(.caption, design: .monospaced))
+        ForEach(Backend.allCases) { backend in
+            Section {
+                ForEach(doctor.reports[backend]?.checks ?? []) { check in
+                    LabeledContent {
+                        Text(check.detail)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
                             .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } label: {
+                        Label {
+                            Text(check.title)
+                        } icon: {
+                            Image(systemName: check.status.symbol).foregroundStyle(check.status.color)
+                        }
                     }
-                    .frame(height: 200)
+                }
+                if let fullReport = doctor.reports[backend]?.fullReport {
+                    DisclosureGroup("Full report") {
+                        ScrollView {
+                            Text(fullReport)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(height: 200)
+                    }
+                }
+                if backend == .opencode { OpenCodeModelSettings() }
+            } header: {
+                HStack {
+                    Text(backend.displayName)
+                    Spacer()
+                    if backend == .claude {
+                        if doctor.isRunning {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Button("Check Again") { Task { await doctor.run() } }
+                        }
+                    }
                 }
             }
-        } header: {
-            Text("Providers")
         }
     }
 }

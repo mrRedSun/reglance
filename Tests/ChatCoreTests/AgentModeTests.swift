@@ -3,7 +3,7 @@ import Testing
 @testable import ChatCore
 
 @Test func ordinaryChatsNeverBypassPermissions() {
-    let args = ClaudeClient.arguments(model: .sonnet, resume: "s1")
+    let args = ClaudeClient.arguments(model: ClaudeModel.sonnet.rawValue, resume: "s1")
     #expect(!args.contains("--permission-mode") && !args.contains("--dangerously-skip-permissions"))
     #expect(!args.contains("--append-system-prompt"))
     #expect(args[args.firstIndex(of: "--tools")! + 1] == "WebSearch,WebFetch")
@@ -11,7 +11,7 @@ import Testing
 }
 
 @Test func agentArgumentsKeepClaudeCodeAndBypassPermissions() {
-    let args = ClaudeClient.arguments(model: .opus, effort: .high, resume: "s1", agent: .bypass)
+    let args = ClaudeClient.arguments(model: ClaudeModel.opus.rawValue, effort: .high, resume: "s1", agent: .bypass)
     #expect(args[args.firstIndex(of: "--permission-mode")! + 1] == "bypassPermissions")
     // The normal Claude Code prompt, settings, tools and MCP servers stay in place.
     for flag in ["--system-prompt", "--tools", "--allowedTools", "--setting-sources", "--strict-mcp-config", "--disable-slash-commands"] {
@@ -25,7 +25,7 @@ import Testing
 }
 
 @Test func agentChatsRunInAutoModeByDefault() throws {
-    let args = ClaudeClient.arguments(model: .sonnet, resume: nil, agent: .auto)
+    let args = ClaudeClient.arguments(model: ClaudeModel.sonnet.rawValue, resume: nil, agent: .auto)
     #expect(args[args.firstIndex(of: "--permission-mode")! + 1] == "auto")
     #expect(Chat(firstMessage: "Hi", model: .sonnet, agentDirectory: URL(filePath: "/tmp")).agentPermissions == .auto)
 }
@@ -64,11 +64,11 @@ private actor Requests {
     }
 }
 
-private struct RecordingClient: ClaudeStreamingClient {
+private struct RecordingClient: ChatStreamingClient {
     let requests: Requests
 
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?,
-              agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
+              agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 await requests.add(agentDirectory, permissions)
@@ -113,10 +113,10 @@ private struct RecordingClient: ClaudeStreamingClient {
 
 @Test func preferencesReachBothPrompts() {
     let preferences = "  Answer in British English.\nKeep it brief.  "
-    let chat = ClaudeClient.arguments(model: .sonnet, resume: nil, preferences: preferences)
+    let chat = ClaudeClient.arguments(model: ClaudeModel.sonnet.rawValue, resume: nil, preferences: preferences)
     let chatPrompt = chat[chat.firstIndex(of: "--system-prompt")! + 1]
     #expect(chatPrompt.hasSuffix("<preferences>\nAnswer in British English.\nKeep it brief.\n</preferences>"))
-    let agent = ClaudeClient.arguments(model: .sonnet, resume: nil, agent: .auto, preferences: preferences)
+    let agent = ClaudeClient.arguments(model: ClaudeModel.sonnet.rawValue, resume: nil, agent: .auto, preferences: preferences)
     #expect(agent[agent.firstIndex(of: "--append-system-prompt")! + 1].contains("# The user's preferences"))
     // No preferences, no section.
     #expect(SystemPrompt.make(preferences: " \n") == SystemPrompt.make())

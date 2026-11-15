@@ -8,8 +8,8 @@ import Testing
 @MainActor
 @Observable
 private final class PickerSelection {
-    var model: ClaudeModel = .sonnet
-    var effort: ClaudeEffort = .automatic
+    var model: ChatModel = .sonnet
+    var effort: Effort = .automatic
     var done = false
     var isPresented = false
     var cardFrame: CGRect = .zero
@@ -24,7 +24,7 @@ private struct OverlayFixture: View {
             .padding(20)
             .frame(width: 520, height: 420, alignment: .bottomTrailing)
             .modelPickerOverlay(isPresented: selection.isPresented, model: $selection.model,
-                                effort: $selection.effort, reduceMotion: false, onDone: {},
+                                effort: $selection.effort, backend: nil, reduceMotion: false, onDone: {},
                                 onFrame: { selection.cardFrame = $0 })
     }
 }
@@ -95,6 +95,14 @@ struct ModelPickerTests {
         LastModelChoice(defaults: defaults).model = .haiku
         next.adoptLastChoice()
         #expect(next.model == .haiku && next.effort == .high)
+        // A Codex or OpenCode choice keeps its backend.
+        let codex = ChatModel(backend: .codex, id: "gpt-5.5")
+        next.model = codex
+        #expect(LastModelChoice(defaults: defaults).model == codex)
+        // A choice saved before backends existed has no backend key and is a Claude model.
+        defaults.removeObject(forKey: "lastModelBackend")
+        defaults.set(ClaudeModel.opus.rawValue, forKey: "lastModel")
+        #expect(LastModelChoice(defaults: defaults).model == .opus)
     }
 
     @Test func expandedPickerFitsTheFloatingWindowAndClosesOnHide() async throws {

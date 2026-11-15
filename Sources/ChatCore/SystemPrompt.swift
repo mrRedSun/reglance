@@ -5,7 +5,9 @@ import Foundation
 public enum SystemPrompt {
     /// Fills in the date and the user's market. Replacing Claude Code's system prompt also
     /// drops the date it normally injects, so it has to be added here.
-    public static func make(now: Date = .now, locale: Locale = .current, preferences: String = "") -> String {
+    /// `assistant` is who the model says it is: "Claude", or a neutral name on other backends.
+    public static func make(now: Date = .now, locale: Locale = .current, preferences: String = "",
+                            assistant: String = "Claude") -> String {
         let date = now.formatted(.dateTime.weekday(.wide).day().month(.wide).year().locale(Locale(identifier: "en_US")))
         let english = Locale(identifier: "en_US")
         // Use the region's name, not the locale id: "en_US@rg=dezzzz" made the model assume the US.
@@ -13,6 +15,7 @@ public enum SystemPrompt {
         let units = locale.measurementSystem == .us ? "US customary" : "metric"
         let currency = locale.currency?.identifier ?? "the local currency"
         return template
+            .replacingOccurrences(of: "{{assistant}}", with: assistant)
             .replacingOccurrences(of: "{{date}}", with: date)
             .replacingOccurrences(of: "{{country}}", with: country)
             .replacingOccurrences(of: "{{units}}", with: units)
@@ -82,7 +85,7 @@ public enum SystemPrompt {
     """
 
     static let template = """
-    You are Claude, answering in a small floating chat window on the user's Mac.
+    You are {{assistant}}, answering in a small floating chat window on the user's Mac.
     People use it for quick questions: facts, explanations, comparisons,
     recommendations, and checking things online, often a link to a product,
     article, or recipe.

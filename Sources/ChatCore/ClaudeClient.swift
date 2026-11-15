@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ClaudeEvent: Equatable, Sendable {
+public enum ChatEvent: Equatable, Sendable {
     /// Session id from the CLI's init event; pass it back as `resume` for follow-ups.
     case session(id: String)
     /// A streamed chunk of the reply.
@@ -20,32 +20,40 @@ public enum ContentBlock: Equatable, Sendable {
     case document(mediaType: String, data: Data, title: String)
 }
 
-public enum ClaudeError: LocalizedError, Equatable, Sendable {
-    case cliNotFound
+public enum ChatError: LocalizedError, Equatable, Sendable {
+    case cliNotFound(Backend)
     case failed(String)
 
     public var errorDescription: String? {
         switch self {
-        case .cliNotFound:
+        case .cliNotFound(.claude):
             "Couldn't find the claude CLI. Install Claude Code and run `claude` once in a terminal to log in."
+        case .cliNotFound(.codex):
+            "Couldn't find the codex CLI. Install Codex and run `codex` once in a terminal to sign in."
+        case .cliNotFound(.opencode):
+            "Couldn't find the opencode CLI. Install OpenCode and run `opencode auth login` in a terminal to sign in."
         case .failed(let message):
             message
         }
     }
 }
 
-/// Streaming boundary used by the controller, also allowing tests without Claude subprocesses.
-public protocol ClaudeStreamingClient: Sendable {
+/// Streaming boundary used by the controller, one per backend (see `BackendRouter`), also
+/// allowing tests without CLI subprocesses.
+public protocol ChatStreamingClient: Sendable {
     /// `agentDirectory` is nil for an ordinary chat; otherwise the turn runs as an agent in
-    /// that folder, approving actions with `permissions`.
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?,
-              agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error>
-    /// A short title for a new chat, or nil if none could be made.
-    func title(question: String, answer: String) async -> String?
+    /// that folder, approving actions with `permissions`. `resume` is the session id from the
+    /// reply before this turn; the stream reports the new turn's own session id, so earlier
+    /// ids stay resumable for regenerate.
+    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
+              agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error>
+    /// A short title for a new chat, or nil if none could be made. Runs on the chat's own
+    /// backend; `model` is the chat's model.
+    func title(question: String, answer: String, model: ChatModel) async -> String?
 }
 
-public extension ClaudeStreamingClient {
-    func title(question: String, answer: String) async -> String? { nil }
+public extension ChatStreamingClient {
+    func title(question: String, answer: String, model: ChatModel) async -> String? { nil }
 }
 
 /// Runs one `claude -p` subprocess per message and streams the reply.
@@ -53,7 +61,7 @@ public extension ClaudeStreamingClient {
 /// tools are web search and web fetch, so the CLI behaves as a chat model that can read
 /// the web. In an agent chat, the CLI runs as it normally would in the chosen folder,
 /// approving actions with auto mode or, if the person opted in, bypassing permissions.
-public struct ClaudeClient: ClaudeStreamingClient {
+public struct ClaudeClient: ChatStreamingClient {
     /// WebSearch runs on Anthropic's servers; WebFetch downloads a page and summarises it.
     /// Neither can change anything on the Mac.
     public static let tools = "WebSearch,WebFetch"
@@ -71,7 +79,7 @@ public struct ClaudeClient: ClaudeStreamingClient {
         self.preferences = preferences
     }
 
-    public static func arguments(model: ClaudeModel, effort: ClaudeEffort = .automatic, resume sessionID: String?,
+    public static func arguments(model: String, effort: Effort = .automatic, resume sessionID: String?,
                                  agent: AgentPermissions? = nil, preferences: String = "") -> [String] {
         var args = [
             "-p",                            // the message comes from stdin (see `userMessageLine`)
@@ -96,7 +104,7 @@ public struct ClaudeClient: ClaudeStreamingClient {
             ]
         }
         args += [
-            "--model", model.rawValue,
+            "--model", model,
             "--output-format", "stream-json",
             "--verbose",                     // required by stream-json in print mode
             "--include-partial-messages",    // token-level text deltas
@@ -134,7 +142,7 @@ public struct ClaudeClient: ClaudeStreamingClient {
         return title.count > 60 ? String(title.prefix(60)) + "…" : title
     }
 
-    public func title(question: String, answer: String) async -> String? {
+    public func title(question: String, answer: String, model: ChatModel) async -> String? {
         let prompt = "Question:\n\(question.prefix(1500))\n\nStart of the answer:\n\(answer.prefix(1500))"
         return await Task.detached {
             guard let executable = ClaudeLocator.executableURL() else { return nil }
@@ -215,8 +223,8 @@ public struct ClaudeClient: ClaudeStreamingClient {
     }
 
     /// Cancelling the consuming task (or dropping the stream) terminates the subprocess.
-    public func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort = .automatic, resume sessionID: String?,
-                     agentDirectory: URL? = nil, permissions: AgentPermissions = .auto) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort = .automatic, resume sessionID: String?,
+                     agentDirectory: URL? = nil, permissions: AgentPermissions = .auto) -> AsyncThrowingStream<ChatEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task.detached {
                 do {
@@ -232,15 +240,15 @@ public struct ClaudeClient: ClaudeStreamingClient {
     }
 
     private func run(
-        content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?,
-        agentDirectory: URL?, permissions: AgentPermissions, continuation: AsyncThrowingStream<ClaudeEvent, Error>.Continuation
+        content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
+        agentDirectory: URL?, permissions: AgentPermissions, continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation
     ) async throws {
-        guard let executable = ClaudeLocator.executableURL() else { throw ClaudeError.cliNotFound }
+        guard let executable = ClaudeLocator.executableURL() else { throw ChatError.cliNotFound(.claude) }
         let directory: URL
         if let agentDirectory {
             // Never create or substitute the person's folder; a missing one is an error.
             guard (try? agentDirectory.checkResourceIsReachable()) == true else {
-                throw ClaudeError.failed("The agent folder \(agentDirectory.path) no longer exists.")
+                throw ChatError.failed("The agent folder \(agentDirectory.path) no longer exists.")
             }
             directory = agentDirectory
         } else {
@@ -248,7 +256,7 @@ public struct ClaudeClient: ClaudeStreamingClient {
             directory = workingDirectory
         }
 
-        let arguments = Self.arguments(model: model, effort: effort, resume: sessionID,
+        let arguments = Self.arguments(model: model.id, effort: effort, resume: sessionID,
                                        agent: agentDirectory == nil ? nil : permissions, preferences: preferences())
         let process = Self.process(executable: executable, arguments: arguments, workingDirectory: directory)
 
@@ -285,10 +293,10 @@ public struct ClaudeClient: ClaudeStreamingClient {
             process.waitUntilExit()
             try Task.checkCancellation()
 
-            if let message = parser.errorMessage { throw ClaudeError.failed(message) }
+            if let message = parser.errorMessage { throw ChatError.failed(message) }
             if !parser.isFinished {
                 let detail = stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
-                throw ClaudeError.failed(detail.isEmpty ? "claude exited with status \(process.terminationStatus)" : detail)
+                throw ChatError.failed(detail.isEmpty ? "claude exited with status \(process.terminationStatus)" : detail)
             }
         } onCancel: {
             handle.terminate()
@@ -328,7 +336,7 @@ final class ProcessHandle: @unchecked Sendable {
     func terminate() { if process.isRunning { process.terminate() } }
 }
 
-/// Turns `--output-format stream-json` lines into `ClaudeEvent`s.
+/// Turns `--output-format stream-json` lines into `ChatEvent`s.
 public struct StreamParser: Sendable {
     public private(set) var sessionID: String?
     public private(set) var text = ""
@@ -347,7 +355,7 @@ public struct StreamParser: Sendable {
         return ""
     }
 
-    public mutating func consume(_ line: String) -> [ClaudeEvent] {
+    public mutating func consume(_ line: String) -> [ChatEvent] {
         guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
               let type = object["type"] as? String else { return [] }
 
@@ -402,7 +410,7 @@ public struct StreamParser: Sendable {
                 errorMessage = result.isEmpty ? "claude returned an error (\(object["subtype"] as? String ?? "unknown"))" : result
                 return []
             }
-            var events: [ClaudeEvent] = []
+            var events: [ChatEvent] = []
             // No partial messages arrived (e.g. an older CLI): emit the whole reply at once.
             if text.isEmpty, !result.isEmpty {
                 text = result
