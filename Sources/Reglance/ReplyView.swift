@@ -79,6 +79,8 @@ struct ReplyView<Bar: View>: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(minHeight: 26)
+                // Let clicks fall through to the drag region so the title moves the panel.
+                .allowsHitTesting(false)
 
             HeaderButton(systemName: "square.and.pencil", help: "New chat (⌘N)", action: onNewChat)
                 .keyboardShortcut("n")

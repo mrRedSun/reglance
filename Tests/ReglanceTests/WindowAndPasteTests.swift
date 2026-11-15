@@ -66,6 +66,32 @@ struct WindowAndPasteTests {
                 "Leading glass inset should drag, got \(String(describing: hosting.hitTest(inset)))")
     }
 
+    @Test func expandedPanelDragsByItsTitle() async throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appending(path: "title-drag-test-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let chats = ChatController(store: ChatStore(directory: directory), client: TitleDragTestClient())
+        let bar = FloatingBarModel()
+        bar.chatID = chats.send("Plan a weekend trip to the mountains", model: .sonnet, to: nil)
+        await chats.waitForReply(try #require(bar.chatID))
+        let controller = FloatingPanelController(chats: chats, model: bar, openInWindow: { _ in })
+        controller.show()
+        defer { controller.hide() }
+        try? await Task.sleep(for: .milliseconds(700))
+        let hosting = try #require(controller.panel.contentView)
+        hosting.layoutSubtreeIfNeeded()
+        func dragView(_ view: NSView) -> WindowDragView? {
+            (view as? WindowDragView) ?? view.subviews.lazy.compactMap(dragView).first
+        }
+        // The drag region backs the whole glass; the title starts 22pt in, centred in a
+        // 26pt row 14pt below the top edge.
+        let region = try #require(dragView(hosting))
+        let glass = region.convert(region.bounds, to: nil)
+        let title = NSPoint(x: glass.minX + 40, y: glass.maxY - 27)
+        let hit = hosting.hitTest(hosting.superview!.convert(title, from: nil))
+        #expect(hit is WindowDragView, "Title should drag the panel, got \(String(describing: hit))")
+    }
+
     @Test func nativeEditorPastesImagesAndTextThroughTheResponderPath() async {
         _ = NSApplication.shared
         let board = imagePasteboard(withText: true)
@@ -284,5 +310,15 @@ struct WindowAndPasteTests {
         defer { board.releaseGlobally() }
         board.setString("hello", forType: .string)
         #expect(!AttachmentPasteboard.paste(into: AttachmentTray(), from: board))
+    }
+}
+
+private struct TitleDragTestClient: ClaudeStreamingClient {
+    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.text("Sure."))
+            continuation.yield(.finished(sessionID: "title-drag-test", fullText: "Sure."))
+            continuation.finish()
+        }
     }
 }
