@@ -37,8 +37,8 @@ Reproduce a bug with a failing test before fixing it. AppKit tests here have tra
 
 The README sells the app to users: hook first (hero GIF, one-line pitch, install), then the feature table, then details folded into `<details>`. Developer material goes in CONTRIBUTING.md.
 
-- **Same change, same commit.** When a user-visible feature ships, changes or is removed, update the README's feature table, shortcuts table and details in that change. Hidden, unfinished controls stay out of the README too.
-- **Images come from demo mode.** Every image in `docs/images/` comes from a `DemoScene` captured by `scripts/capture-readme.sh`, in light and dark. A new feature worth showing gets a new scene and a README row. A design change that alters what a scene shows means the user reruns the script: name the scenes to recapture (`scripts/capture-readme.sh hero chats`) in your summary. The script is theirs to run, because it takes over the screen.
+- **Marketing ships with minor and major releases.** A patch release (x.y.Z: fixes, polish, spacing) leaves the README and `docs/images/` as they are. When a minor or major release adds, changes or removes a user-visible feature, update the README's feature table, shortcuts table and details in that release. Hidden, unfinished controls stay out of the README too.
+- **Images come from demo mode.** Every image in `docs/images/` comes from a `DemoScene` captured by `scripts/capture-readme.sh`, in light and dark. A new feature worth showing gets a new scene and a README row. A design change that alters what a scene shows means the user reruns the script before the next minor or major release: name the scenes to recapture (`scripts/capture-readme.sh hero chats`) in your summary. The script is theirs to run, because it takes over the screen.
 - **Demo content is made up.** Keep demo chats and replies in `DemoContent.swift`, and leave real chats out of images and examples.
 
 ## Releases
