@@ -11,6 +11,9 @@ extension EnvironmentValues {
     @Entry var conversationTextSize: CGFloat = 14.5
 }
 
+/// Extra leading for conversation text, about a 1.65 line height (ChatGPT and t3code read at 1.6–1.75).
+func conversationLineSpacing(_ textSize: CGFloat) -> CGFloat { textSize * 0.45 }
+
 struct ReplyBody: View {
     let text: String
     let isStreaming: Bool
@@ -35,7 +38,7 @@ private struct SegmentView: View, Equatable {
         case .markdown(let text):
             MarkdownText(text)
                 .font(.system(size: textSize))
-                .lineSpacing(4)
+                .lineSpacing(conversationLineSpacing(textSize))
         case .chart(let spec):
             ChartCard(spec: spec)
         case .html(let source):

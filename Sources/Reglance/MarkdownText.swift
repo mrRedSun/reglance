@@ -9,7 +9,7 @@ struct MarkdownText: View {
     init(_ text: String) { blocks = MarkdownBlock.parse(text) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: textSize * 0.75) {
             ForEach(blocks.indices, id: \.self) { index in
                 block(blocks[index])
             }
@@ -25,7 +25,7 @@ struct MarkdownText: View {
         case .heading(let level, let text):
             Text(Self.inline(text)).font(.system(size: textSize + (level == 1 ? 2.5 : 1), weight: .semibold))
         case .list(let items):
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: textSize * 0.35) {
                 ForEach(items.indices, id: \.self) { index in
                     let item = items[index]
                     HStack(alignment: .firstTextBaseline, spacing: 6) {

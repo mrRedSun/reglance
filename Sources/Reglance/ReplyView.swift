@@ -123,7 +123,7 @@ struct MessageView: View {
                         Spacer(minLength: 96)
                         Text(message.text)
                             .font(.system(size: textSize))
-                            .lineSpacing(2)
+                            .lineSpacing(conversationLineSpacing(textSize))
                             .textSelection(.enabled)
                             .padding(.horizontal, 13)
                             .padding(.vertical, 8)
