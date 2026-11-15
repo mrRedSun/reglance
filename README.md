@@ -91,12 +91,12 @@ It runs on the Claude Code login you already have, so there's no API key to past
     <td>
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/agent-dark.png">
-        <img src="docs/images/agent-light.png" alt="An agent chat with a red outline, after fixing links in a blog folder">
+        <img src="docs/images/agent-light.png" alt="An agent chat glowing blue in auto mode, after fixing links in a blog folder">
       </picture>
     </td>
     <td>
       <h3>Agent mode, when you ask for it</h3>
-      Switch it on (⌘⇧A) and Claude works in a folder you pick, with your full Claude Code setup. Agent chats are outlined in red so you always know which mode you're in.
+      Switch it on (⌘⇧A) and Claude works in a folder you pick, with your full Claude Code setup. It runs in auto mode, glowing blue, so you always know which mode you're in.
     </td>
   </tr>
 </table>
@@ -107,6 +107,7 @@ It runs on the Claude Code login you already have, so there's no API key to past
 - Your Claude Code settings, CLAUDE.md, MCP servers and skills stay out of ordinary chats.
 - Chats are JSON files in `~/Library/Application Support/Reglance`. Reglance has no server and no analytics.
 - Agent mode is off for every new chat, and it asks you to confirm the first time you turn it on.
+- Agent chats run in Claude Code's auto mode, which blocks risky actions. Skipping permission checks entirely is a separate opt-in in Settings.
 
 ## Install
 
@@ -169,14 +170,18 @@ The floating bar reopens on your last chat. After it has been hidden for 5 minut
 
 Reglance is a regular Mac app with a Dock icon, a chats window and a menu bar icon. Closing the chats window keeps the bar available; ⌘Q quits. In Settings you can turn on Open at login, change the ⌥Space shortcut, choose when the bar starts a new chat, and check that Claude Code is installed and signed in. The check also shows the full `claude doctor` report.
 
+Under Personal Preferences, tell Claude about yourself and how you like answers: your language, expertise or tone. Reglance adds them to the system prompt of every chat, agent chats included, starting with your next message.
+
 </details>
 
 <details>
 <summary>Agent mode in full</summary>
 
-In agent mode, Claude runs as Claude Code normally does in a folder you choose: the default system prompt, your settings, CLAUDE.md, skills, hooks, plugins, MCP servers and local tools. **Permission prompts are bypassed** (`--permission-mode bypassPermissions`), so commands and file changes run without asking.
+In agent mode, Claude runs as Claude Code normally does in a folder you choose: the default system prompt, your settings, CLAUDE.md, skills, hooks, plugins, MCP servers and local tools. Agent chats run in **auto mode** (`--permission-mode auto`): Claude Code checks each action, runs the ones it judges safe without asking, and blocks risky ones. They glow blue and carry an "Agent mode · Auto" label.
 
-A chat keeps the mode it was created with. Follow-ups in an agent chat stay in its folder, and an ordinary chat never gets agent permissions. Switching the toggle while a chat is open starts a new chat. Agent chats have a red outline, an "Agent mode · Permissions bypassed" label, and a red badge in the sidebar. The red styling is a warning, not a sandbox. The stop button ends the `claude` process and the commands it started.
+If you want every action to run without a check, turn on **Bypass permissions** in Settings (`--permission-mode bypassPermissions`). New agent chats then glow red with an "Agent mode · Permissions bypassed" label. The red styling is a warning, not a sandbox.
+
+A chat keeps the mode and permissions it was created with. Follow-ups in an agent chat stay in its folder, and an ordinary chat never gets agent permissions. Switching the toggle while a chat is open starts a new chat. The sidebar badge shows which agent chats are which. The stop button ends the `claude` process and the commands it started.
 
 Reglance doesn't request Accessibility or Screen Recording access itself. macOS asks only if a tool you configured needs it.
 
