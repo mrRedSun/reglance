@@ -71,7 +71,7 @@ struct ModelPickerPanel: View {
                 VStack(alignment: .leading, spacing: 5) {
                     sectionTitle("Model")
                     ForEach(ClaudeModel.allCases) { choice in
-                        PickerChoice(isSelected: model == choice, action: { model = choice }) {
+                        PickerChoice(isSelected: model == choice, action: { model = choice; onDone() }) {
                             HStack(spacing: 9) {
                                 Image(systemName: choice.pickerSymbol)
                                     .font(.system(size: 15))
@@ -97,7 +97,7 @@ struct ModelPickerPanel: View {
                 VStack(alignment: .leading, spacing: 2) {
                     sectionTitle("Effort").padding(.bottom, 3)
                     ForEach(ClaudeEffort.allCases) { level in
-                        PickerChoice(isSelected: effort == level, verticalPadding: 6, action: { effort = level }) {
+                        PickerChoice(isSelected: effort == level, verticalPadding: 6, action: { effort = level; onDone() }) {
                             Text(level.displayName).font(.system(size: 12, weight: effort == level ? .medium : .regular))
                         }
                         .accessibilityLabel("\(level.displayName) effort")

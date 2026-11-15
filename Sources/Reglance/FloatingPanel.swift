@@ -29,8 +29,9 @@ final class FloatingPanel: NSPanel {
 final class FloatingBarModel {
     var text = ""
     let attachments = AttachmentTray()
-    var model: ClaudeModel = .sonnet
-    var effort: ClaudeEffort = .automatic
+    var model: ClaudeModel { didSet { lastChoice.model = model } }
+    var effort: ClaudeEffort { didSet { lastChoice.effort = effort } }
+    @ObservationIgnored private var lastChoice: LastModelChoice
     /// The chat shown under the bar; nil means the next send starts a new chat.
     var chatID: UUID?
     /// Agent mode for the next new chat: the folder it runs in. Off for every new chat.
@@ -40,11 +41,40 @@ final class FloatingBarModel {
     var isPresented = false
     var pickerIsPresented = false
 
+    init(lastChoice: LastModelChoice = LastModelChoice()) {
+        self.lastChoice = lastChoice
+        model = lastChoice.model
+        effort = lastChoice.effort
+    }
+
+    /// Picks up a choice made in the chats window since the bar last opened.
+    func adoptLastChoice() {
+        model = lastChoice.model
+        effort = lastChoice.effort
+    }
+
     /// Sends the draft to the open chat, or starts one. Callers choose the animation.
     func send(using chats: ChatController) {
         chatID = chats.send(text, attachments: attachments.take(), model: model, effort: effort,
                             agentDirectory: agentDirectory, agentPermissions: AgentMode.permissions, to: chatID)
         text = ""
+    }
+}
+
+/// The model and effort last chosen in either composer; new chats start with them.
+struct LastModelChoice {
+    private static let modelKey = "lastModel"
+    private static let effortKey = "lastEffort"
+    var defaults = AgentMode.defaults
+
+    var model: ClaudeModel {
+        get { defaults.string(forKey: Self.modelKey).flatMap(ClaudeModel.init(rawValue:)) ?? .sonnet }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.modelKey) }
+    }
+
+    var effort: ClaudeEffort {
+        get { defaults.string(forKey: Self.effortKey).flatMap(ClaudeEffort.init(rawValue:)) ?? .automatic }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.effortKey) }
     }
 }
 
@@ -206,7 +236,10 @@ final class FloatingPanelController {
 
     func show() {
         let isEntering = !panel.isVisible
-        if isEntering { startNewChatIfIdle() }
+        if isEntering {
+            startNewChatIfIdle()
+            if model.chatID == nil { model.adoptLastChoice() }
+        }
         // First show, or the mouse moved to another display: place it there. Otherwise keep
         // the spot the user dragged it to.
         if !hasPosition || panel.screen?.frame != mouseScreen?.frame { positionOnActiveScreen() }

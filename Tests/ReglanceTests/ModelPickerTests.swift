@@ -69,12 +69,32 @@ struct ModelPickerTests {
         click(x: 120, fromTop: 233)
         try await Task.sleep(for: .milliseconds(30))
         #expect(selection.model == .opus && selection.effort == .automatic)
+        #expect(selection.done, "Choosing a model closes the picker")
+        selection.done = false
         click(x: 370, fromTop: 193)
         try await Task.sleep(for: .milliseconds(30))
         #expect(selection.model == .opus && selection.effort == .high)
+        #expect(selection.done, "Choosing an effort closes the picker")
+        selection.done = false
         click(x: size.width - 55, fromTop: 50)
         try await Task.sleep(for: .milliseconds(20))
         #expect(selection.done)
+    }
+
+    @Test func barRemembersTheLastModelAndEffort() throws {
+        let suite = "picker-choice-test-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = FloatingBarModel(lastChoice: LastModelChoice(defaults: defaults))
+        #expect(first.model == .sonnet && first.effort == .automatic)
+        first.model = .opus
+        first.effort = .high
+        let next = FloatingBarModel(lastChoice: LastModelChoice(defaults: defaults))
+        #expect(next.model == .opus && next.effort == .high)
+        // A choice made in the chats window reaches a bar that's already loaded.
+        LastModelChoice(defaults: defaults).model = .haiku
+        next.adoptLastChoice()
+        #expect(next.model == .haiku && next.effort == .high)
     }
 
     @Test func expandedPickerFitsTheFloatingWindowAndClosesOnHide() async throws {

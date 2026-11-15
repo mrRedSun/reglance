@@ -374,8 +374,8 @@ private struct ConversationView: View {
         self.chats = chats
         self.window = window
         let selected = chats.chat(window.selection)
-        _model = State(initialValue: selected?.model ?? .sonnet)
-        _effort = State(initialValue: selected?.effort ?? .automatic)
+        _model = State(initialValue: selected?.model ?? LastModelChoice().model)
+        _effort = State(initialValue: selected?.effort ?? LastModelChoice().effort)
     }
 
     var body: some View {
@@ -453,6 +453,8 @@ private struct ConversationView: View {
         .background(Color(nsColor: .textBackgroundColor))
         .navigationTitle(chat?.title ?? (window.showsArchive ? "Archive" : "New Chat"))
         .onAppear { focusToken += 1 }
+        .onChange(of: model) { LastModelChoice().model = model }
+        .onChange(of: effort) { LastModelChoice().effort = effort }
     }
 
     /// A chat keeps the mode it was created with, so switching while one is open starts
