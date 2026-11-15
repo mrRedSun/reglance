@@ -120,11 +120,7 @@ public struct ClaudeClient: ChatStreamingClient {
     /// is a separate, tool-free Haiku request that isn't saved as a session.
     public static let titleArguments: [String] = [
         "-p",
-        "--system-prompt", """
-            You name chat conversations. Reply with only a title of 2 to 6 words that says \
-            what the conversation is about, in the language of the question. Sentence case. \
-            No quotes, no trailing punctuation, no emoji.
-            """,
+        "--system-prompt", SystemPrompt.titleInstructions,
         "--tools", "",
         "--setting-sources", "",
         "--strict-mcp-config",

@@ -13,9 +13,11 @@ import Foundation
 //       Replaces the chat's last reply with a new one, like the regenerate button.
 //   reglance-cli list
 //       Lists saved chats.
+//   reglance-cli models
+//       Lists the models each installed backend offers the picker, with their efforts.
 
 func usage() -> Never {
-    print("usage: reglance-cli ask [--model haiku|sonnet|opus|codex:<model>|opencode:<provider/model>] [--effort automatic|minimal|low|medium|high|xhigh|max] [--chat <chat-id>] [--agent <folder>] [--attach <path>]… [--stop-after <seconds>] <question>\n       reglance-cli regenerate <chat-id> [--effort automatic|minimal|low|medium|high|xhigh|max]\n       reglance-cli list")
+    print("usage: reglance-cli ask [--model haiku|sonnet|opus|codex:<model>|opencode:<provider/model>] [--effort automatic|minimal|low|medium|high|xhigh|max] [--chat <chat-id>] [--agent <folder>] [--attach <path>]… [--stop-after <seconds>] <question>\n       reglance-cli regenerate <chat-id> [--effort automatic|minimal|low|medium|high|xhigh|max]\n       reglance-cli list\n       reglance-cli models")
     exit(2)
 }
 
@@ -29,6 +31,13 @@ switch command {
 case "list":
     for chat in controller.chats {
         print("\(chat.id)  \(chat.updatedAt.formatted())  \(chat.backend.rawValue):\(chat.model.id)  \(chat.agentDirectory.map { "agent=\($0.path)" } ?? "chat")  session=\(chat.sessionID ?? "-")  \"\(chat.title)\" (\(chat.messages.count) messages)")
+    }
+
+case "models":
+    for backend in Backend.allCases {
+        for option in await backend.models() {
+            print("\(backend.rawValue):\(option.model.id)  \"\(option.name)\"  \(option.detail)  efforts=\(option.efforts.map(\.rawValue).joined(separator: ","))")
+        }
     }
 
 case "ask":

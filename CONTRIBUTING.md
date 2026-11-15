@@ -77,6 +77,12 @@ Each follow-up runs `claude -p … --resume <session> --fork-session`. Every rep
 
 The app looks for `claude` in the usual install locations (`~/.local/bin`, Homebrew, npm, bun). If it isn't there, it asks the login shell, because apps launched from Finder don't get the shell `PATH`.
 
+### Codex
+
+Install Codex (`brew install --cask codex`) and run `codex` once to sign in; Settings checks both. Each turn starts its own `codex app-server` (JSON-RPC over stdio, ready in well under a second) in `CodexWorkdir/`, with Reglance's system prompt as the thread's base instructions, so replies stream token by token. A follow-up forks the previous reply's thread (`thread/fork`), so every reply has its own id, like Claude's `--fork-session`. Stop sends `turn/interrupt` and ends the process. The picker's models come from `model/list` (`reglance-cli models` prints them).
+
+Codex reads your own `~/.codex`, where its sign-in lives; Reglance never copies credentials. To keep a chat to web search, it disables every MCP server named in your `config.toml` and the shell, apps, plugins, browser, computer-use and memories features, and runs each thread read-only with approvals off. If Codex still starts an MCP server or anything but a web search, the reply stops with an error. Your global `~/.codex/AGENTS.md` is still loaded, because Codex has no setting to skip it, and Codex chats appear in your Codex history. PDFs aren't supported.
+
 Rich replies (charts, HTML widgets, documents) are fenced code blocks with a custom language tag. `design/widgets.md` has the format.
 
 ## Where things live

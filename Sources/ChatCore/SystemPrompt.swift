@@ -23,6 +23,13 @@ public enum SystemPrompt {
             + preferencesSection(preferences)
     }
 
+    /// The system prompt of the separate request that names a new chat, on every backend.
+    public static let titleInstructions = """
+        You name chat conversations. Reply with only a title of 2 to 6 words that says \
+        what the conversation is about, in the language of the question. Sentence case. \
+        No quotes, no trailing punctuation, no emoji.
+        """
+
     /// The UserDefaults key for the preferences the person writes in Settings.
     public static let preferencesKey = "userPreferences"
 
