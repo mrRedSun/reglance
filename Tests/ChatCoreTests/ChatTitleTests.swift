@@ -5,7 +5,7 @@ import Testing
 private struct TitlingClient: ClaudeStreamingClient {
     let title: String?
 
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
         AsyncThrowingStream { continuation in
             continuation.yield(.text("Basenjis yodel instead of barking."))
             continuation.yield(.finished(sessionID: "title-session", fullText: "Basenjis yodel instead of barking."))

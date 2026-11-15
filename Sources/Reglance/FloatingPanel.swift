@@ -34,6 +34,7 @@ final class FloatingBarModel {
     /// The chat shown under the bar; nil means the next send starts a new chat.
     var chatID: UUID?
     /// Agent mode for the next new chat: the folder it runs in. Off for every new chat.
+    /// Its permissions come from Settings when the chat starts (`AgentMode.permissions`).
     var agentDirectory: URL?
     var focusToken = 0
     var isPresented = false
@@ -42,7 +43,7 @@ final class FloatingBarModel {
     /// Sends the draft to the open chat, or starts one. Callers choose the animation.
     func send(using chats: ChatController) {
         chatID = chats.send(text, attachments: attachments.take(), model: model, effort: effort,
-                            agentDirectory: agentDirectory, to: chatID)
+                            agentDirectory: agentDirectory, agentPermissions: AgentMode.permissions, to: chatID)
         text = ""
     }
 }
@@ -167,11 +168,15 @@ final class FloatingPanelController {
         model.pickerIsPresented = false
         let isOn = chats.chat(model.chatID)?.isAgent ?? (model.agentDirectory != nil)
         if isOn {
-            model.agentDirectory = nil
-            model.chatID = nil
+            withAnimation(AgentMode.toggleAnimation) {
+                model.agentDirectory = nil
+                model.chatID = nil
+            }
         } else if AgentMode.confirmEnabling() {
-            model.agentDirectory = AgentMode.directory
-            model.chatID = nil
+            withAnimation(AgentMode.toggleAnimation) {
+                model.agentDirectory = AgentMode.directory
+                model.chatID = nil
+            }
         }
         refocus()
     }
@@ -285,11 +290,13 @@ private struct FloatingRootView: View {
     let toggleAgent: () -> Void
     let chooseAgentDirectory: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Observed so a composer already in agent mode recolours when Settings changes.
+    @AppStorage(AgentMode.bypassKey, store: AgentMode.defaults) private var bypassesPermissions = false
 
     var body: some View {
         let chat = chats.chat(bar.chatID)
         let isStreaming = chats.isStreaming(bar.chatID)
-        let scale = FloatingPanelMotion.scale(isPresented: bar.isPresented, expanded: chat != nil, reduceMotion: reduceMotion)
+        let scale = FloatingPanelMotion.scale(isPresented: bar.isPresented, reduceMotion: reduceMotion)
 
         // One container so the bar and panel glass render and blend as a single material.
         GlassEffectContainer {
@@ -313,6 +320,7 @@ private struct FloatingRootView: View {
                 ) {
                     promptBar(chat: chat, isStreaming: isStreaming)
                 }
+                .agentGlowAnchor()
             }
             .frame(width: FloatingPanelController.contentWidth)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onGlassFrame($0) }
@@ -321,6 +329,9 @@ private struct FloatingRootView: View {
             // root spans the panel so the picker card has room above the bar.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
+        .agentGlow(isOn: chat.map(\.isAgent) ?? (bar.agentDirectory != nil),
+                   color: (chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto)).color,
+                   cornerRadius: chat == nil ? ComposerShape.cornerRadius : ComposerShape.panelCornerRadius)
         .modelPickerOverlay(isPresented: bar.pickerIsPresented, model: $bar.model, effort: $bar.effort,
                             reduceMotion: reduceMotion,
                             onDone: {
@@ -331,6 +342,7 @@ private struct FloatingRootView: View {
                             onFrame: onPickerFrame)
         // Animate only presentation, never the NSWindow frame or the editor's layout.
         .scaleEffect(x: scale.width, y: scale.height, anchor: .bottom)
+        .blur(radius: FloatingPanelMotion.blur(isPresented: bar.isPresented, reduceMotion: reduceMotion))
         .opacity(bar.isPresented ? 1 : 0)
         .animation(FloatingPanelMotion.animation(reduceMotion: reduceMotion), value: bar.isPresented)
         .attachmentDrop(bar.attachments)
@@ -351,6 +363,7 @@ private struct FloatingRootView: View {
             usesExternalPicker: true,
             // An open chat shows its own mode; the toggle only sets up the next chat.
             agentDirectory: chat.map(\.agentDirectory) ?? bar.agentDirectory,
+            agentPermissions: chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto),
             onToggleAgent: toggleAgent,
             onChooseAgentDirectory: chat == nil ? chooseAgentDirectory : nil
         )

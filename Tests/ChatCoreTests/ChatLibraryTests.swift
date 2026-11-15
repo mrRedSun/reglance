@@ -9,7 +9,7 @@ private func libraryStore() -> ChatStore {
 private struct TestClaudeClient: ClaudeStreamingClient {
     let stream: AsyncThrowingStream<ClaudeEvent, Error>
 
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
         stream
     }
 }
@@ -146,7 +146,7 @@ private actor RecordedRequests {
 private struct RecordingClaudeClient: ClaudeStreamingClient {
     let requests: RecordedRequests
 
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 await requests.add(.init(model: model, effort: effort, resume: sessionID))

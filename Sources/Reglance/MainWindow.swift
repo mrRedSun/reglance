@@ -261,7 +261,8 @@ private struct MainView: View {
     private func rows(_ items: [Chat]) -> some View {
         ForEach(items) { chat in
             SidebarRow(title: chat.title, systemImage: chat.isPinned ? "pin.fill" : "bubble.left",
-                       updatedAt: chat.updatedAt, isReplying: chats.isStreaming(chat.id), isAgent: chat.isAgent)
+                       updatedAt: chat.updatedAt, isReplying: chats.isStreaming(chat.id),
+                       agentPermissions: chat.isAgent ? chat.agentPermissions : nil)
             .tag(SidebarSelection.chat(chat.id))
             .contextMenu {
                 Button("Rename…", systemImage: "pencil") { renamingChat = chat }
@@ -286,7 +287,8 @@ struct SidebarRow: View {
     let systemImage: String
     var updatedAt: Date? = nil
     var isReplying = false
-    var isAgent = false
+    /// Set for agent chats.
+    var agentPermissions: AgentPermissions? = nil
     var isDestination = false
     @Environment(\.backgroundProminence) private var backgroundProminence
 
@@ -307,7 +309,7 @@ struct SidebarRow: View {
                     .lineLimit(updatedAt == nil ? 1 : 2)
                 if let updatedAt {
                     HStack(spacing: 6) {
-                        if isAgent { AgentModeBadge(compact: true) }
+                        if let agentPermissions { AgentModeBadge(permissions: agentPermissions, compact: true) }
                         Text(updatedAt, format: .relative(presentation: .named))
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -320,7 +322,9 @@ struct SidebarRow: View {
             }
         }
         .padding(.vertical, 6)
-        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+        // The list already insets rows inside the selection; with these the icon sits as
+        // far from the highlight's leading edge as from its top and bottom (about 10pt).
+        .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
     }
 }
 
@@ -362,6 +366,8 @@ private struct ConversationView: View {
     @State private var model: ClaudeModel
     @State private var effort: ClaudeEffort
     @State private var focusToken = 0
+    /// Observed so a composer already in agent mode recolours when Settings changes.
+    @AppStorage(AgentMode.bypassKey, store: AgentMode.defaults) private var bypassesPermissions = false
 
     init(chats: ChatController, window: MainWindowModel) {
         self.chats = chats
@@ -398,7 +404,9 @@ private struct ConversationView: View {
             }
             .defaultScrollAnchor(.bottom)
             .safeAreaInset(edge: .top, spacing: 0) {
-                if let chat, let directory = chat.agentDirectory { AgentBanner(directory: directory) }
+                if let chat, let directory = chat.agentDirectory {
+                    AgentBanner(directory: directory, permissions: chat.agentPermissions)
+                }
             }
             .overlay {
                 if chat == nil {
@@ -421,12 +429,14 @@ private struct ConversationView: View {
                     onSend: {
                         guard !isStreaming else { return }
                         window.selection = chats.send(text, attachments: attachments.take(), model: model, effort: effort,
-                                                      agentDirectory: window.agentDirectory, to: window.selection)
+                                                      agentDirectory: window.agentDirectory,
+                                                      agentPermissions: AgentMode.permissions, to: window.selection)
                         text = ""
                     },
                     onStop: { if let id = window.selection { chats.cancel(id) } },
                     // An open chat shows its own mode; the toggle only sets up the next chat.
                     agentDirectory: chat.map(\.agentDirectory) ?? window.agentDirectory,
+                    agentPermissions: chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto),
                     onToggleAgent: { toggleAgentMode(chat: chat) },
                     onChooseAgentDirectory: chat == nil ? {
                         if let directory = AgentMode.chooseDirectory() { window.agentDirectory = directory }
@@ -449,10 +459,14 @@ private struct ConversationView: View {
     private func toggleAgentMode(chat: Chat?) {
         let isOn = chat?.isAgent ?? (window.agentDirectory != nil)
         if isOn {
-            if chat == nil { window.agentDirectory = nil } else { window.newChat() }
+            withAnimation(AgentMode.toggleAnimation) {
+                if chat == nil { window.agentDirectory = nil } else { window.newChat() }
+            }
         } else if AgentMode.confirmEnabling() {
-            if chat != nil { window.newChat() }
-            window.agentDirectory = AgentMode.directory
+            withAnimation(AgentMode.toggleAnimation) {
+                if chat != nil { window.newChat() }
+                window.agentDirectory = AgentMode.directory
+            }
         }
         focusToken += 1
     }
@@ -461,11 +475,12 @@ private struct ConversationView: View {
 /// Above every agent conversation, so reopening one never looks like an ordinary chat.
 private struct AgentBanner: View {
     let directory: URL
+    let permissions: AgentPermissions
 
     var body: some View {
         HStack(spacing: 10) {
-            AgentModeBadge()
-            Text("Commands and file changes run without asking, in \(AgentMode.displayPath(directory)).")
+            AgentModeBadge(permissions: permissions)
+            Text(permissions.explanation(in: AgentMode.displayPath(directory)))
                 .font(.system(size: 12.5))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -474,7 +489,7 @@ private struct AgentBanner: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
-        .background(AgentMode.color.opacity(0.12))
-        .overlay(alignment: .bottom) { Rectangle().fill(AgentMode.color).frame(height: 1.5) }
+        .background(permissions.color.opacity(0.12))
+        .overlay(alignment: .bottom) { Rectangle().fill(permissions.color).frame(height: 1.5) }
     }
 }

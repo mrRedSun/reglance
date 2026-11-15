@@ -24,8 +24,10 @@ struct PromptBarView: View {
     /// The floating controller owns this binding so Esc closes the picker first.
     var pickerIsPresented: Binding<Bool>? = nil
     var usesExternalPicker = false
-    /// Non-nil while agent mode is on: the folder the chat runs in. Shows the red warning.
+    /// Non-nil while agent mode is on: the folder the chat runs in. Shows the agent glow.
     var agentDirectory: URL? = nil
+    /// How the agent chat approves actions: blue for auto mode, red when bypassed.
+    var agentPermissions: AgentPermissions = .auto
     /// The Agent button (⌘⇧A).
     var onToggleAgent: () -> Void = {}
     /// Changes the agent folder. Nil once the chat exists, since its folder is fixed.
@@ -52,7 +54,9 @@ struct PromptBarView: View {
             // The floating root owns the shared glass container and accessory.
             composer
         } else {
-            GlassEffectContainer { composer }
+            GlassEffectContainer { composer.agentGlowAnchor() }
+                .agentGlow(isOn: agentDirectory != nil, color: agentPermissions.color,
+                           cornerRadius: ComposerShape.cornerRadius)
                 .modelPickerOverlay(isPresented: pickerPresentation.wrappedValue, model: $model, effort: $effort,
                                     reduceMotion: reduceMotion, onDone: dismissPicker)
             // The card floats over the conversation above the composer.
@@ -62,7 +66,9 @@ struct PromptBarView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let agentDirectory { agentRow(agentDirectory) }
+            if let agentDirectory {
+                agentRow(agentDirectory).transition(.opacity.combined(with: .offset(y: 8)))
+            }
             if showsTray { trayRow }
             inputRow
         }
@@ -76,20 +82,12 @@ struct PromptBarView: View {
             }
         }
         .glassEffect(embedded || docked ? .identity : .regular, in: .rect(cornerRadius: ComposerShape.cornerRadius))
-        .overlay {
-            if agentDirectory != nil {
-                RoundedRectangle(cornerRadius: ComposerShape.cornerRadius)
-                    .strokeBorder(AgentMode.color, lineWidth: 1.5)
-                    .allowsHitTesting(false)
-            }
-        }
         .animation(.easeOut(duration: 0.15), value: showsTray)
-        .animation(.easeOut(duration: 0.15), value: agentDirectory)
     }
 
     private func agentRow(_ directory: URL) -> some View {
         HStack(spacing: 8) {
-            AgentModeBadge()
+            AgentModeBadge(permissions: agentPermissions)
             Group {
                 if let onChooseAgentDirectory {
                     Button(action: onChooseAgentDirectory) {
@@ -145,7 +143,7 @@ struct PromptBarView: View {
                          verticalInset: editorInset)
                 .frame(minHeight: 20 + 2 * editorInset)
 
-            AgentToggle(isOn: agentDirectory != nil, action: onToggleAgent)
+            AgentToggle(isOn: agentDirectory != nil, permissions: agentPermissions, action: onToggleAgent)
                 .padding(.bottom, editorInset - 5)
 
             ModelPickerPill(model: model, effort: effort, isExpanded: pickerPresentation.wrappedValue) {
@@ -155,7 +153,7 @@ struct PromptBarView: View {
             .padding(.bottom, editorInset - 5)
 
             SendButton(state: isStreaming ? .stop : (canSend ? .ready : .idle),
-                       tint: agentDirectory == nil ? .accentColor : AgentMode.color) {
+                       tint: agentDirectory == nil ? .accentColor : agentPermissions.color) {
                 isStreaming ? onStop() : submit()
             }
             .padding(.bottom, editorInset - 5)
@@ -179,35 +177,112 @@ struct PromptBarView: View {
 /// states (several lines, attachments) keep the same radius.
 enum ComposerShape {
     static let editorInset: CGFloat = 11
-    static let padding = EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 7)
+    static let sendButtonSize: CGFloat = 30
+    /// The send button sits in the capsule's round end with the same gap above, below and
+    /// to its right: (56 − 30) / 2 = 13pt.
+    static var padding: EdgeInsets {
+        EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: (oneLineHeight - sendButtonSize) / 2)
+    }
     /// 20pt line + 2 × 11pt editor inset + 2 × 7pt padding = 56pt.
-    static var oneLineHeight: CGFloat { 20 + 2 * editorInset + padding.top + padding.bottom }
+    static var oneLineHeight: CGFloat { 20 + 2 * editorInset + 2 * 7 }
     static var cornerRadius: CGFloat { oneLineHeight / 2 }
     /// The reply panel around a docked composer, concentric with it.
     static let dockInset: CGFloat = 7
     static var panelCornerRadius: CGFloat { cornerRadius + dockInset }
+    /// The grey behind the composer's buttons. A plain tint rather than a system fill:
+    /// system fills blend with the glass behind them and vanished while it reshaped.
+    static let controlFill = Color.primary.opacity(0.1)
 }
 
-/// Turns agent mode on or off. Red while on.
+/// The glass the agent glow surrounds, published from inside a GlassEffectContainer.
+struct AgentGlowAnchorKey: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
+extension View {
+    /// Marks this glass as the one the agent glow surrounds.
+    func agentGlowAnchor() -> some View {
+        anchorPreference(key: AgentGlowAnchorKey.self, value: .bounds) { $0 }
+    }
+
+    /// Draws the agent glow behind this view, around the glass marked with
+    /// `agentGlowAnchor()`. Apply outside the GlassEffectContainer: content inside the
+    /// glass is held back while the glass reshapes, so a glow there appeared only once the
+    /// composer had finished growing.
+    func agentGlow(isOn: Bool, color: Color, cornerRadius: CGFloat) -> some View {
+        backgroundPreferenceValue(AgentGlowAnchorKey.self) { anchor in
+            GeometryReader { proxy in
+                if let anchor {
+                    let rect = proxy[anchor]
+                    AgentGlow(color: color, cornerRadius: cornerRadius, isOn: isOn)
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                }
+            }
+        }
+    }
+}
+
+/// The glow around an agent composer or reply panel: a tight glow on the edge and a wider
+/// halo, only outside the shape, with no hard border. Always in place and driven by
+/// `isOn`, so it spreads out on the same animation that grows the composer, not on a timer
+/// of its own.
+struct AgentGlow: View {
+    let color: Color
+    let cornerRadius: CGFloat
+    let isOn: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+        let spread: CGFloat = isOn ? 1 : 0
+        ZStack {
+            shape.stroke(color.opacity(0.5 * spread), lineWidth: 8).blur(radius: 2 + 12 * spread)
+            shape.stroke(color.opacity(0.9 * spread), lineWidth: 1.5).blur(radius: 3)
+        }
+        .mask { OutsideShape(shape: shape).fill(style: FillStyle(eoFill: true)) }
+        .opacity(spread)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Everything around a shape, out to where the glow fades: the shape cut out of a larger rect.
+private nonisolated struct OutsideShape: Shape {
+    let shape: RoundedRectangle
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path(rect.insetBy(dx: -40, dy: -40))
+        path.addPath(shape.path(in: rect))
+        return path
+    }
+}
+
+/// Turns agent mode on or off. Blue (auto) or red (bypassed) while on.
 private struct AgentToggle: View {
     let isOn: Bool
+    let permissions: AgentPermissions
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: isOn ? "exclamationmark.shield.fill" : "exclamationmark.shield")
+            Image(systemName: isOn ? permissions.symbol + ".fill" : permissions.symbol)
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(isOn ? .white : .secondary)
                 .frame(width: 26, height: 26)
-                .background(isOn ? AnyShapeStyle(AgentMode.color) : AnyShapeStyle(.fill.tertiary), in: .circle)
+                .background(isOn ? AnyShapeStyle(permissions.color) : AnyShapeStyle(ComposerShape.controlFill), in: .circle)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
         .keyboardShortcut("a", modifiers: [.command, .shift])
         .padding(.bottom, 2)
-        .help(isOn ? "Turn off agent mode (⌘⇧A)" : "Agent mode: run Claude Code with permission prompts bypassed (⌘⇧A)")
+        .help(isOn ? "Turn off agent mode (⌘⇧A)"
+              : permissions == .auto ? "Agent mode: run Claude Code in auto mode (⌘⇧A)"
+              : "Agent mode: run Claude Code with permission prompts bypassed (⌘⇧A)")
         .accessibilityLabel("Agent mode")
-        .accessibilityValue(isOn ? "On, permissions bypassed" : "Off")
+        .accessibilityValue(isOn ? (permissions == .auto ? "On, auto mode" : "On, permissions bypassed") : "Off")
     }
 }
 
@@ -238,7 +313,7 @@ private struct SendButton: View {
                 }
             }
             .font(.system(size: 14, weight: .bold))
-            .frame(width: 30, height: 30)
+            .frame(width: ComposerShape.sendButtonSize, height: ComposerShape.sendButtonSize)
             .contentShape(Circle())
         }
         .buttonStyle(.plain)

@@ -65,7 +65,7 @@ swift run reglance-cli ask --model opus --effort high "Explain this"   # explici
 swift run reglance-cli regenerate <chat-id>                          # replace the last reply
 swift run reglance-cli ask --stop-after 2 "Write a long essay"       # cancel, like the stop button
 swift run reglance-cli ask --attach shot.png "What's in this?"       # attachments; repeatable
-swift run reglance-cli ask --agent ~/Projects/app "Run the tests"     # agent chat: permissions bypassed
+swift run reglance-cli ask --agent ~/Projects/app "Run the tests"     # agent chat: auto mode
 swift run reglance-cli list
 ```
 
@@ -90,7 +90,7 @@ Everything is stored under `~/Library/Application Support/Reglance/`:
 ## Code layout
 
 - `Sources/ChatCore`: no UI. `ClaudeClient` (subprocess, stream-json parsing, cancel), `SystemPrompt`, `ClaudeLocator`, `Chat`/`Message`, `Attachment`, `ReplyContent` (splits replies into markdown and widget blocks), `ChatStore` (JSON persistence), `ChatController` (shared observable state), `DemoMode` and `DemoContent`.
-- `Sources/Reglance`: the app. `FloatingPanel` (non-activating panel), `HotKey` (Carbon global hotkey, no Accessibility permission needed, and the saved shortcut), `PromptBarView` (the one composer both windows use), `ReplyView` (expanded panel and `MessageView`, which renders every message in both windows), `ReplyBody` (markdown, chart and document cards), `HTMLWidget` (sandboxed web view), `Attachments`, `PromptEditor` (native text and screenshot paste), `MainWindow`, `SettingsWindow` (login item, shortcut recorder and the provider doctor, whose checks live in `ChatCore/ClaudeDoctor`), `AgentMode` (agent-mode warning, folder picker, red badge), `DemoScene` (README shots), `WindowDragRegion`, `MarkdownText`.
+- `Sources/Reglance`: the app. `FloatingPanel` (non-activating panel), `HotKey` (Carbon global hotkey, no Accessibility permission needed, and the saved shortcut), `PromptBarView` (the one composer both windows use), `ReplyView` (expanded panel and `MessageView`, which renders every message in both windows), `ReplyBody` (markdown, chart and document cards), `HTMLWidget` (sandboxed web view), `Attachments`, `PromptEditor` (native text and screenshot paste), `MainWindow`, `SettingsWindow` (login item, shortcut recorder, personal preferences, agent permissions and the provider doctor, whose checks live in `ChatCore/ClaudeDoctor`), `AgentMode` (agent-mode confirmations, permissions, folder picker, badge), `DemoScene` (README shots), `WindowDragRegion`, `MarkdownText`.
 - `Sources/reglance-cli`: the terminal client.
 - `Formula/reglance.rb`: the Homebrew formula. `scripts/build-app.sh` does the same build locally.
 - `scripts/make-icon.swift`: draws the app icon and writes `Resources/AppIcon.icns`. Rerun it after changing the drawing.

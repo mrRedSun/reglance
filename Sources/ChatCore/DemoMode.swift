@@ -35,7 +35,7 @@ public struct DemoClient: ClaudeStreamingClient {
     }
 
     public func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?,
-                     agentDirectory: URL?) -> AsyncThrowingStream<ClaudeEvent, Error> {
+                     agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
         let question = content.compactMap { block -> String? in
             if case .text(let text) = block { text } else { nil }
         }.joined(separator: "\n")

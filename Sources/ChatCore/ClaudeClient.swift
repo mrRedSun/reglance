@@ -36,9 +36,10 @@ public enum ClaudeError: LocalizedError, Equatable, Sendable {
 
 /// Streaming boundary used by the controller, also allowing tests without Claude subprocesses.
 public protocol ClaudeStreamingClient: Sendable {
-    /// `agentDirectory` is nil for an ordinary chat; otherwise the turn runs as an agent in that folder.
+    /// `agentDirectory` is nil for an ordinary chat; otherwise the turn runs as an agent in
+    /// that folder, approving actions with `permissions`.
     func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?,
-              agentDirectory: URL?) -> AsyncThrowingStream<ClaudeEvent, Error>
+              agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error>
     /// A short title for a new chat, or nil if none could be made.
     func title(question: String, answer: String) async -> String?
 }
@@ -51,35 +52,42 @@ public extension ClaudeStreamingClient {
 /// In a chat, user settings, MCP servers and slash commands are disabled, and the only
 /// tools are web search and web fetch, so the CLI behaves as a chat model that can read
 /// the web. In an agent chat, the CLI runs as it normally would in the chosen folder,
-/// with permission prompts bypassed.
+/// approving actions with auto mode or, if the person opted in, bypassing permissions.
 public struct ClaudeClient: ClaudeStreamingClient {
     /// WebSearch runs on Anthropic's servers; WebFetch downloads a page and summarises it.
     /// Neither can change anything on the Mac.
     public static let tools = "WebSearch,WebFetch"
 
     public let workingDirectory: URL
+    /// The person's preferences from Settings, read for every message so edits apply to
+    /// the next one.
+    public let preferences: @Sendable () -> String
 
-    public init(workingDirectory: URL = AppPaths.claudeWorkdir) {
+    public init(workingDirectory: URL = AppPaths.claudeWorkdir,
+                preferences: @escaping @Sendable () -> String = {
+                    UserDefaults.standard.string(forKey: SystemPrompt.preferencesKey) ?? ""
+                }) {
         self.workingDirectory = workingDirectory
+        self.preferences = preferences
     }
 
     public static func arguments(model: ClaudeModel, effort: ClaudeEffort = .automatic, resume sessionID: String?,
-                                 agent: Bool = false) -> [String] {
+                                 agent: AgentPermissions? = nil, preferences: String = "") -> [String] {
         var args = [
             "-p",                            // the message comes from stdin (see `userMessageLine`)
             "--input-format", "stream-json", // so it can carry images and documents
         ]
-        if agent {
+        if let agent {
             // Claude Code's own system prompt, settings, CLAUDE.md, skills, hooks, plugins
             // and MCP servers, plus the widget instructions. Print mode can't ask for
-            // permission, so the person opted in to bypassing it.
+            // permission, so auto mode or (opted in) bypassing decides instead.
             args += [
-                "--append-system-prompt", SystemPrompt.agentAppendix,
-                "--permission-mode", "bypassPermissions",
+                "--append-system-prompt", SystemPrompt.agentAppendix(preferences: preferences),
+                "--permission-mode", agent.cliMode,
             ]
         } else {
             args += [
-                "--system-prompt", SystemPrompt.make(),
+                "--system-prompt", SystemPrompt.make(preferences: preferences),
                 "--tools", tools,
                 "--allowedTools", tools,     // print mode can't ask for permission
                 "--setting-sources", "",
@@ -208,12 +216,12 @@ public struct ClaudeClient: ClaudeStreamingClient {
 
     /// Cancelling the consuming task (or dropping the stream) terminates the subprocess.
     public func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort = .automatic, resume sessionID: String?,
-                     agentDirectory: URL? = nil) -> AsyncThrowingStream<ClaudeEvent, Error> {
+                     agentDirectory: URL? = nil, permissions: AgentPermissions = .auto) -> AsyncThrowingStream<ClaudeEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task.detached {
                 do {
                     try await run(content: content, model: model, effort: effort, resume: sessionID,
-                                  agentDirectory: agentDirectory, continuation: continuation)
+                                  agentDirectory: agentDirectory, permissions: permissions, continuation: continuation)
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -225,7 +233,7 @@ public struct ClaudeClient: ClaudeStreamingClient {
 
     private func run(
         content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?,
-        agentDirectory: URL?, continuation: AsyncThrowingStream<ClaudeEvent, Error>.Continuation
+        agentDirectory: URL?, permissions: AgentPermissions, continuation: AsyncThrowingStream<ClaudeEvent, Error>.Continuation
     ) async throws {
         guard let executable = ClaudeLocator.executableURL() else { throw ClaudeError.cliNotFound }
         let directory: URL
@@ -240,7 +248,8 @@ public struct ClaudeClient: ClaudeStreamingClient {
             directory = workingDirectory
         }
 
-        let arguments = Self.arguments(model: model, effort: effort, resume: sessionID, agent: agentDirectory != nil)
+        let arguments = Self.arguments(model: model, effort: effort, resume: sessionID,
+                                       agent: agentDirectory == nil ? nil : permissions, preferences: preferences())
         let process = Self.process(executable: executable, arguments: arguments, workingDirectory: directory)
 
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()

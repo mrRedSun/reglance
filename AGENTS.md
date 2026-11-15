@@ -14,7 +14,7 @@ A lightweight native macOS chat bar for Claude (⌥Space), plus a chats window. 
 - **Glass that overlaps stays separate.** Shapes in one `GlassEffectContainer` fuse into one blob when they overlap, so a card over the bar gets its own glass layer.
 - **One composer.** `PromptBarView` serves the floating bar and the chats window. Fix input, paste, picker, and sizing there once; the windows differ only in who owns the glass and whether it grows into a reply panel.
 - **One radius.** Corner radii come from `ComposerShape` (half a one-line composer's height, a capsule). Surrounding panels stay concentric with it.
-- **Motion is springy and Apple-style**, with hero transitions (the model pill grows into its card). Nothing jumps: the floating panel keeps one tall transparent frame and its glass grows upward inside it, so the window never resizes mid-animation.
+- **Motion is springy and Apple-style**, with a shared bloom (`BloomMotion`): the floating bar opens with it on ⌥Space and the model pill grows into its picker card (one glass shape that grows and reveals the contents). Nothing jumps: the floating panel keeps one tall transparent frame and its glass grows upward inside it, so the window never resizes mid-animation.
 - **Native window behaviour over SwiftUI emulation.** The sidebar is always shown and window tabbing is off. Reach for the AppKit primitive (split view items, menu validation, responder actions) before reimplementing it.
 
 ## Working with the user

@@ -46,7 +46,8 @@ struct WindowAndPasteTests {
         let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
         controller.show()
         defer { controller.hide() }
-        try? await Task.sleep(for: .milliseconds(100))
+        // Wait out the entrance bloom, which scales the bar while it plays.
+        try? await Task.sleep(for: .milliseconds(700))
         controller.panel.contentView?.layoutSubtreeIfNeeded()
         func hasDragRegion(_ view: NSView) -> Bool {
             (view is WindowDragView && view.bounds.width > 0 && view.bounds.height > 0)
@@ -271,9 +272,9 @@ struct WindowAndPasteTests {
     }
 
     @Test func motionRespectsReduceMotion() {
-        #expect(FloatingPanelMotion.scale(isPresented: false, expanded: false, reduceMotion: true) == CGSize(width: 1, height: 1))
-        #expect(FloatingPanelMotion.scale(isPresented: true, expanded: false, reduceMotion: false) == CGSize(width: 1, height: 1))
-        let start = FloatingPanelMotion.scale(isPresented: false, expanded: false, reduceMotion: false)
+        #expect(FloatingPanelMotion.scale(isPresented: false, reduceMotion: true) == CGSize(width: 1, height: 1))
+        #expect(FloatingPanelMotion.scale(isPresented: true, reduceMotion: false) == CGSize(width: 1, height: 1))
+        let start = FloatingPanelMotion.scale(isPresented: false, reduceMotion: false)
         #expect(start.width < 1 && start.height < 1)
         // The chats sidebar uses AppKit's standard slide, which follows Reduce Motion itself.
     }

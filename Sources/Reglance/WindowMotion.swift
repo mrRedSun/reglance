@@ -32,13 +32,25 @@ enum SidebarLayout {
     }
 }
 
+/// The bloom: a spring out of about a third of the size and a blur, with a slight overshoot.
+/// The floating bar opens this way on ⌥Space, and the picker card out of its pill.
+enum BloomMotion {
+    static let animation = Animation.spring(response: 0.40, dampingFraction: 0.62)
+    static let startScale: CGFloat = 0.35
+    static let startBlur: CGFloat = 12
+}
+
 enum FloatingPanelMotion {
     static func animation(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.40, dampingFraction: 0.65)
+        reduceMotion ? .easeOut(duration: 0.12) : BloomMotion.animation
     }
 
-    static func scale(isPresented: Bool, expanded: Bool, reduceMotion: Bool) -> CGSize {
+    static func scale(isPresented: Bool, reduceMotion: Bool) -> CGSize {
         guard !isPresented, !reduceMotion else { return CGSize(width: 1, height: 1) }
-        return expanded ? CGSize(width: 0.97, height: 0.95) : CGSize(width: 0.90, height: 0.82)
+        return CGSize(width: BloomMotion.startScale, height: BloomMotion.startScale)
+    }
+
+    static func blur(isPresented: Bool, reduceMotion: Bool) -> CGFloat {
+        isPresented || reduceMotion ? 0 : BloomMotion.startBlur
     }
 }

@@ -10,7 +10,16 @@ The app fills these at send time:
 Replacing Claude Code's system prompt also drops the date it normally injects,
 so the app has to add it.
 
-The widget section (from widgets.md) is appended after this text.
+The widget section (from widgets.md) is appended after this text. When the person
+has written preferences in Settings, this goes last, in chats and agent chats alike:
+
+```text
+# The user's preferences
+The user wrote these about themselves and how they want you to respond. Follow them unless a request asks for something else.
+<preferences>
+{{preferences}}
+</preferences>
+```
 
 Tools for this prompt: `--tools "WebSearch,WebFetch"`. WebSearch runs on
 Anthropic's servers. WebFetch downloads the page from the Mac and summarises it.

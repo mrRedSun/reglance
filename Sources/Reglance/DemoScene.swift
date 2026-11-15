@@ -24,7 +24,7 @@ struct DemoScene {
         case chats
         /// Still: the chats window with an interactive HTML widget.
         case widgets
-        /// Still: an agent chat with its red outline.
+        /// Still: an agent chat with its agent glow.
         case agent
     }
 

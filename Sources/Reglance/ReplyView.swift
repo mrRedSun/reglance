@@ -65,20 +65,13 @@ struct ReplyView<Bar: View>: View {
         // Any empty glass (header, edges, gaps around the composer) moves the panel.
         .background { WindowDragRegion() }
         .glassEffect(.regular, in: .rect(cornerRadius: chat == nil ? ComposerShape.cornerRadius : ComposerShape.panelCornerRadius))
-        .overlay {
-            if chat?.isAgent == true {
-                RoundedRectangle(cornerRadius: ComposerShape.panelCornerRadius)
-                    .strokeBorder(AgentMode.color, lineWidth: 1.5)
-                    .allowsHitTesting(false)
-            }
-        }
         .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.40, dampingFraction: 0.82), value: chat != nil)
     }
 
     private func header(_ chat: Chat) -> some View {
         HStack(spacing: 2) {
             if chat.isAgent {
-                AgentModeBadge().padding(.trailing, 6)
+                AgentModeBadge(permissions: chat.agentPermissions).padding(.trailing, 6)
             }
             Text(chat.title)
                 .font(.system(size: 13, weight: .semibold))

@@ -64,6 +64,22 @@ public struct Message: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// How an agent chat's actions are approved. Print mode can't ask, so the CLI decides.
+public enum AgentPermissions: String, Codable, Sendable {
+    /// Claude Code's auto mode: a classifier runs actions it judges safe and blocks risky ones.
+    case auto
+    /// Every action runs without asking. Opt-in from Settings.
+    case bypass
+
+    /// The CLI's `--permission-mode` value.
+    public var cliMode: String {
+        switch self {
+        case .auto: "auto"
+        case .bypass: "bypassPermissions"
+        }
+    }
+}
+
 /// One tool call shown as progress, e.g. a search query or a fetched URL.
 public struct ToolStep: Codable, Equatable, Sendable {
     /// The CLI's tool name: `WebSearch` or `WebFetch` in chats, any tool in agent chats.
@@ -96,15 +112,19 @@ public struct Chat: Codable, Identifiable, Equatable, Sendable {
     public var isPinned: Bool
     public var isArchived: Bool
     /// Set for agent chats: the folder the CLI runs in, with the normal Claude Code
-    /// environment and permission prompts bypassed. Nil for ordinary chats, which stay
-    /// limited to web search and fetch. Fixed when the chat is created; a CLI session can
-    /// only be resumed from the folder it was created in.
+    /// environment. Nil for ordinary chats, which stay limited to web search and fetch.
+    /// Fixed when the chat is created; a CLI session can only be resumed from the folder
+    /// it was created in.
     public var agentDirectory: URL?
+    /// How an agent chat's actions are approved, fixed when the chat is created.
+    /// Ignored for ordinary chats.
+    public var agentPermissions: AgentPermissions
     public var messages: [Message]
 
     public var isAgent: Bool { agentDirectory != nil }
 
-    public init(firstMessage: String, model: ClaudeModel, effort: ClaudeEffort = .automatic, agentDirectory: URL? = nil) {
+    public init(firstMessage: String, model: ClaudeModel, effort: ClaudeEffort = .automatic, agentDirectory: URL? = nil,
+                agentPermissions: AgentPermissions = .auto) {
         let now = Date()
         self.id = UUID()
         self.title = Chat.makeTitle(from: firstMessage)
@@ -117,11 +137,12 @@ public struct Chat: Codable, Identifiable, Equatable, Sendable {
         self.isPinned = false
         self.isArchived = false
         self.agentDirectory = agentDirectory
+        self.agentPermissions = agentPermissions
         self.messages = []
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, titleIsAutomatic, createdAt, updatedAt, sessionID, model, effort, isPinned, isArchived, agentDirectory, messages
+        case id, title, titleIsAutomatic, createdAt, updatedAt, sessionID, model, effort, isPinned, isArchived, agentDirectory, agentPermissions, messages
     }
 
     public init(from decoder: any Decoder) throws {
@@ -138,6 +159,8 @@ public struct Chat: Codable, Identifiable, Equatable, Sendable {
         isPinned = try values.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         isArchived = try values.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         agentDirectory = try values.decodeIfPresent(URL.self, forKey: .agentDirectory)
+        // Agent chats saved before auto mode were created with permissions bypassed.
+        agentPermissions = try values.decodeIfPresent(AgentPermissions.self, forKey: .agentPermissions) ?? .bypass
         messages = try values.decode([Message].self, forKey: .messages)
     }
 

@@ -71,14 +71,14 @@ public final class ChatController {
     }
 
     /// Sends `text` and `attachments` to an existing chat, or starts a new chat when
-    /// `chatID` is nil. Returns the chat id. `agentDirectory` only applies to a new chat:
-    /// an existing chat keeps the mode it was created with.
+    /// `chatID` is nil. Returns the chat id. `agentDirectory` and `agentPermissions` only
+    /// apply to a new chat: an existing chat keeps the mode it was created with.
     @discardableResult
     public func send(_ text: String, attachments: [AttachmentDraft] = [], model: ClaudeModel, effort: ClaudeEffort = .automatic,
-                     agentDirectory: URL? = nil, to chatID: UUID?) -> UUID {
+                     agentDirectory: URL? = nil, agentPermissions: AgentPermissions = .auto, to chatID: UUID?) -> UUID {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         var chat = chat(chatID) ?? Chat(firstMessage: prompt.isEmpty ? attachments.first?.name ?? "" : prompt, model: model,
-                                        agentDirectory: agentDirectory)
+                                        agentDirectory: agentDirectory, agentPermissions: agentPermissions)
         guard !prompt.isEmpty || !attachments.isEmpty, !streaming.contains(chat.id) else { return chat.id }
 
         chat.model = model
@@ -148,7 +148,8 @@ public final class ChatController {
             finish(chatID: id, replyID: replyID, error: error.localizedDescription)
             return
         }
-        let stream = client.send(content, model: model, effort: effort, resume: resume, agentDirectory: chat.agentDirectory)
+        let stream = client.send(content, model: model, effort: effort, resume: resume, agentDirectory: chat.agentDirectory,
+                                 permissions: chat.agentPermissions)
         tasks[id] = Task { [weak self] in
             var failure: String?
             do {

@@ -2,7 +2,7 @@ import AppKit
 import ChatCore
 import SwiftUI
 
-/// The pill opens the picker card, which grows out of it (see `modelPickerOverlay`).
+/// The pill grows into the picker card (see `modelPickerOverlay`).
 struct ModelPickerPill: View {
     let model: ClaudeModel
     let effort: ClaudeEffort
@@ -19,20 +19,19 @@ struct ModelPickerPill: View {
                 }
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
-                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
                     .opacity(0.7)
             }
             .padding(.leading, 10)
             .padding(.trailing, 8)
             .frame(height: 26)
             // A plain fill: the composer is already glass, and glass on glass muddies it.
-            .background(.fill.tertiary, in: .capsule)
+            .background(ComposerShape.controlFill, in: .capsule)
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
         .background {
-            // The hero's starting shape. Removed in the same transaction that inserts the
-            // card's glass, so SwiftUI interpolates one frame into the other.
+            // The glass's starting shape. Removed in the same transaction that inserts the
+            // card's glass, so SwiftUI grows one frame into the other.
             if !isExpanded, let heroNamespace {
                 Capsule().fill(.clear).matchedGeometryEffect(id: ModelPickerHero.id, in: heroNamespace)
             }
@@ -64,7 +63,7 @@ struct ModelPickerPanel: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(.fill.tertiary, in: .capsule)
+                    .background(ComposerShape.controlFill, in: .capsule)
                     .accessibilityLabel("Done choosing model and effort")
             }
 
@@ -146,7 +145,7 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Hero picker: the pill's capsule grows into the card, which opens over the pill
+    /// The pill's glass grows into the card, revealing its contents. The card opens over the pill
     /// with its bottom-trailing corner on the pill's. Apply outside the
     /// GlassEffectContainer that holds the pill: the card is its own glass layer,
     /// because overlapping glass in one container fuses into a single shape.
@@ -198,23 +197,42 @@ private struct ModelPickerOverlay: ViewModifier {
     private var card: some View {
         ZStack(alignment: .bottomTrailing) {
             if isPresented {
+                // An invisible copy sizes the card; the visible card is one glass shape that
+                // grows from the pill's frame and reveals the contents as it grows.
                 ModelPickerPanel(model: $model, effort: $effort, onDone: onDone)
-                    // The glass sits behind the contents and morphs from the pill's frame.
-                    .background {
+                    .hidden()
+                    .overlay(alignment: .bottomTrailing) {
                         Color.clear
-                            .glassEffect(.regular, in: .rect(cornerRadius: ComposerShape.cornerRadius))
+                            .overlay(alignment: .bottomTrailing) {
+                                ModelPickerPanel(model: $model, effort: $effort, onDone: onDone)
+                                    .fixedSize()
+                                    .transition(reduceMotion ? .opacity : AnyTransition(PickerContentsReveal()))
+                            }
+                            .clipShape(.rect(cornerRadius: ComposerShape.cornerRadius))
+                            .background {
+                                Color.clear.glassEffect(.regular, in: .rect(cornerRadius: ComposerShape.cornerRadius))
+                            }
                             .matchedGeometryEffect(id: ModelPickerHero.id, in: namespace)
                     }
-                    .transition(reduceMotion ? .opacity
-                                : .opacity.combined(with: .scale(scale: 0.85, anchor: .bottomTrailing)))
+                    .transition(reduceMotion ? .opacity : .identity)
             }
         }
+        .animation(reduceMotion ? .easeOut(duration: 0.10) : BloomMotion.animation, value: isPresented)
         .fixedSize()
         // An empty frame while closed, so clicks pass through again.
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
             outsideClicks.cardFrame = $0
             onFrame($0)
         }
+    }
+}
+
+/// The contents sharpen and fade in as the glass grows around them, with the bloom's blur.
+private struct PickerContentsReveal: Transition {
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content
+            .blur(radius: phase.isIdentity ? 0 : BloomMotion.startBlur)
+            .opacity(phase.isIdentity ? 1 : 0)
     }
 }
 

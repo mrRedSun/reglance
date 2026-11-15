@@ -94,6 +94,8 @@ private struct SettingsView: View {
     let hotKey: HotKeySettings
     let doctor: ProviderDoctor
     @AppStorage(NewChatAfter.defaultsKey) private var newChatAfter = NewChatAfter.defaultValue
+    @AppStorage(AgentMode.bypassKey, store: AgentMode.defaults) private var bypassesPermissions = false
+    @AppStorage(SystemPrompt.preferencesKey) private var preferences = ""
 
     var body: some View {
         Form {
@@ -142,6 +144,32 @@ private struct SettingsView: View {
                 }
             } header: {
                 Text("Shortcut")
+            }
+            Section {
+                TextEditor(text: $preferences)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .frame(height: 84)
+                    .accessibilityLabel("Personal preferences")
+                Text("What Claude should know about you and how you like answers, such as your language, "
+                     + "expertise or tone. Added to every chat, including agent chats, from your next message.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Personal Preferences")
+            }
+            Section {
+                Toggle("Bypass permissions", isOn: Binding(
+                    get: { bypassesPermissions },
+                    set: { bypassesPermissions = $0 ? AgentMode.confirmBypassing() : false }
+                ))
+                Text(bypassesPermissions
+                     ? "New agent chats run every action without asking. They glow red."
+                     : "New agent chats run in auto mode: Claude Code runs actions it judges safe and blocks risky ones. They glow blue.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Agent Mode")
             }
             ProviderSection(doctor: doctor)
         }

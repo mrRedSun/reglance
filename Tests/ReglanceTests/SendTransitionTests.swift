@@ -4,7 +4,7 @@ import Testing
 @testable import Reglance
 
 private struct TransitionTestClient: ClaudeStreamingClient {
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
         AsyncThrowingStream { continuation in
             continuation.yield(.session(id: "transition-test-session"))
             continuation.yield(.text("Hello."))
@@ -24,15 +24,29 @@ private struct TransitionTestClient: ClaudeStreamingClient {
     let controller = FloatingPanelController(chats: chats, model: bar, openInWindow: { _ in })
     controller.show()
     defer { controller.hide() }
-    try await Task.sleep(for: .milliseconds(100))
     func findEditor(_ view: NSView) -> PromptTextView? {
         if let editor = view as? PromptTextView { return editor }
         return view.subviews.lazy.compactMap(findEditor).first
     }
     let root = try #require(controller.panel.contentView)
     let editor = try #require(findEditor(root))
+    // Wait out the entrance bloom so it doesn't read as the composer moving: until the
+    // editor starts rising (that can take a few hundred ms in the full suite), then until
+    // it holds still for 100ms. Fixed waits were flaky on a busy machine.
+    let deadline = ContinuousClock.now + .seconds(3)
+    let start = editor.convert(editor.bounds, to: nil).minY
+    while abs(editor.convert(editor.bounds, to: nil).minY - start) < 2, ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(16))
+    }
+    var editorBottom = editor.convert(editor.bounds, to: nil).minY
+    var stillSince = ContinuousClock.now
+    while ContinuousClock.now - stillSince < .milliseconds(100), ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(16))
+        let bottom = editor.convert(editor.bounds, to: nil).minY
+        if abs(bottom - editorBottom) > 0.25 { stillSince = .now }
+        editorBottom = bottom
+    }
     let originalFrame = controller.panel.frame
-    let editorBottom = editor.convert(editor.bounds, to: nil).minY
     bar.text = "Hello"
     try await Task.sleep(for: .milliseconds(20))
     editor.onSubmit?()
@@ -44,7 +58,7 @@ private struct TransitionTestClient: ClaudeStreamingClient {
         #expect(controller.panel.frame == originalFrame)
         positions.append(editor.convert(editor.bounds, to: nil).minY)
     }
-    #expect(positions.allSatisfy { abs($0 - editorBottom) < 12 }, "Composer moved: \(positions)")
+    #expect(positions.allSatisfy { abs($0 - editorBottom) < 12 }, "Composer moved from \(editorBottom): \(positions)")
     let afterSend = try #require(findEditor(root))
     #expect(afterSend === editor, "Sending must not destroy and replace the editor/glass hierarchy")
     #expect(chats.chat(bar.chatID)?.messages.last?.text == "Hello.")

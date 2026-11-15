@@ -5,7 +5,7 @@ import Foundation
 public enum SystemPrompt {
     /// Fills in the date and the user's market. Replacing Claude Code's system prompt also
     /// drops the date it normally injects, so it has to be added here.
-    public static func make(now: Date = .now, locale: Locale = .current) -> String {
+    public static func make(now: Date = .now, locale: Locale = .current, preferences: String = "") -> String {
         let date = now.formatted(.dateTime.weekday(.wide).day().month(.wide).year().locale(Locale(identifier: "en_US")))
         let english = Locale(identifier: "en_US")
         // Use the region's name, not the locale id: "en_US@rg=dezzzz" made the model assume the US.
@@ -17,11 +17,35 @@ public enum SystemPrompt {
             .replacingOccurrences(of: "{{country}}", with: country)
             .replacingOccurrences(of: "{{units}}", with: units)
             .replacingOccurrences(of: "{{currency}}", with: currency)
+            + preferencesSection(preferences)
+    }
+
+    /// The UserDefaults key for the preferences the person writes in Settings.
+    public static let preferencesKey = "userPreferences"
+
+    /// The person's own preferences, added to the end of both prompts. Empty when none.
+    static func preferencesSection(_ preferences: String) -> String {
+        let trimmed = preferences.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return """
+
+
+            # The user's preferences
+            The user wrote these about themselves and how they want you to respond. Follow \
+            them unless a request asks for something else.
+            <preferences>
+            \(trimmed)
+            </preferences>
+            """
     }
 
     /// Appended to Claude Code's own system prompt in agent chats, which keeps its
     /// environment, tools and date; only the rendering instructions are added.
-    public static let agentAppendix = """
+    public static func agentAppendix(preferences: String = "") -> String {
+        agentAppendixBase + preferencesSection(preferences)
+    }
+
+    static let agentAppendixBase = """
     The user is talking to you through Reglance, a chat window on their Mac. Your
     replies are rendered as markdown.
 

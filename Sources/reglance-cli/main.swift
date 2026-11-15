@@ -5,7 +5,7 @@ import Foundation
 //
 //   reglance-cli ask [--model haiku|sonnet|opus] [--effort automatic|low|medium|high|xhigh|max] [--chat <chat-id>] [--agent <folder>] [--attach <path>]… [--stop-after <seconds>] <question>
 //       Streams the reply to stdout and saves the chat like the app does.
-//       --agent starts an agent chat in <folder>: full Claude Code, permission prompts bypassed.
+//       --agent starts an agent chat in <folder>: full Claude Code, in auto mode.
 //       --chat continues an existing chat (uses --resume with its session id).
 //       --attach sends a file (image, PDF, or text) with the question; repeatable.
 //       --stop-after cancels the reply after N seconds, like the stop button.
