@@ -120,7 +120,7 @@ struct ModelPickerPanel: View {
 
     /// Long lists (OpenCode can offer many models) scroll instead of growing past the screen.
     @ViewBuilder private var modelColumn: some View {
-        let rows = backends.reduce(0) { $0 + (library.options[$1]?.count ?? 0) }
+        let rows = backends.reduce(0) { $0 + library.pickerOptions(for: $1, selected: model).count }
         if rows > 6 {
             ScrollView { modelList }.frame(height: 330)
         } else {

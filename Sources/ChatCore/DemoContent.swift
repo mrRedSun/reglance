@@ -20,6 +20,18 @@ public enum DemoContent {
     ]
     static let demoEfforts: [Effort] = [.automatic, .low, .medium, .high, .xhigh, .max]
 
+    /// Codex and OpenCode in demo mode, so the picker shows every backend's section.
+    public static let codexModels: [ModelOption] = [
+        ModelOption(model: ChatModel(backend: .codex, id: "gpt-6-astra"), name: "GPT-6-Astra",
+                    detail: "Frontier intelligence", efforts: demoEfforts),
+        ModelOption(model: ChatModel(backend: .codex, id: "gpt-6-luna"), name: "GPT-6-Luna",
+                    detail: "Fast and affordable model", efforts: demoEfforts),
+    ]
+    public static let openCodeModels: [ModelOption] = [
+        ModelOption(model: ChatModel(backend: .opencode, id: "zai-coding-plan/glm-5.3"), name: "GLM-5.3",
+                    detail: "Z.AI Coding Plan", efforts: [.automatic, .low, .high, .max]),
+    ]
+
     public static let heroQuestion = "How much caffeine is in coffee vs. tea?"
     /// The question the attachments scene types next to its floor plan and lease.
     public static let attachmentQuestion = "Does this floor plan match what the lease says?"

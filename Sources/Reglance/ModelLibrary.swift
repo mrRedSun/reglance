@@ -10,8 +10,11 @@ import SwiftUI
 @Observable
 final class ModelLibrary {
     /// Demo mode shows its made-up list and never asks a CLI. Tests swap in a fixed library.
+    /// Demo mode keeps every backend on, whatever the person switched off.
     static var shared = DemoMode.isEnabled
-        ? ModelLibrary(fixed: [.claude: DemoContent.models])
+        ? ModelLibrary(fixed: [.claude: DemoContent.models, .codex: DemoContent.codexModels,
+                               .opencode: DemoContent.openCodeModels],
+                       defaults: UserDefaults(suiteName: "app.reglance.demo") ?? .standard)
         : ModelLibrary(cacheURL: AppPaths.root.appending(path: "Models.json"))
 
     private(set) var options: [Backend: [ModelOption]]
