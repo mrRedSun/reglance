@@ -62,27 +62,34 @@ final class ProviderDoctor {
         isRunning = true
         defer { isRunning = false }
         await withTaskGroup(of: (Backend, DoctorReport).self) { group in
-            for backend in Backend.allCases {
+            // A switched-off backend's CLI isn't run at all.
+            for backend in Backend.allCases where ModelLibrary.shared.isEnabled(backend) {
                 group.addTask { (backend, await backend.doctor()) }
             }
             for await (backend, report) in group { reports[backend] = report }
         }
         // A backend that was just installed or signed in shows up in the picker.
-        await ModelLibrary.shared.refresh()
+        await ModelLibrary.shared.refresh(force: true)
     }
 }
 
+/// Settings in toolbar tabs, like most Mac apps: each tab is as tall as its contents, up to
+/// `SettingsPane.maxHeight`, and scrolls beyond that.
 final class SettingsWindowController {
     private let settings = LoginSettings()
     private let hotKey: HotKeySettings
     private let doctor = ProviderDoctor()
-    private lazy var window: NSWindow = {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 230),
-                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "ReGlance Settings"
-        window.contentViewController = NSHostingController(rootView: SettingsView(settings: settings, hotKey: hotKey, doctor: doctor))
+    private(set) lazy var window: NSWindow = {
+        let tabs = NSTabViewController()
+        tabs.tabStyle = .toolbar
+        tabs.addTabViewItem(Self.tab("General", symbol: "gearshape",
+                                     GeneralSettings(settings: settings, hotKey: hotKey)))
+        tabs.addTabViewItem(Self.tab("Agent Mode", symbol: "folder.badge.gearshape", AgentSettings()))
+        tabs.addTabViewItem(Self.tab("Providers", symbol: "cpu", ProviderSettings(doctor: doctor)))
+        let window = NSWindow(contentViewController: tabs)
+        window.styleMask = [.titled, .closable]
+        window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
-        window.center()
         return window
     }()
 
@@ -91,22 +98,54 @@ final class SettingsWindowController {
     func show() {
         settings.refresh()
         Task { await doctor.run() }
+        if !window.isVisible { window.center() }
+        WindowPresentation.prepare(window)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }
+
+    private static func tab(_ label: String, symbol: String, _ view: some View) -> NSTabViewItem {
+        let host = NSHostingController(rootView: view)
+        host.sizingOptions = [.preferredContentSize]
+        // The tab controller shows the selected tab's title as the window's.
+        host.title = label
+        let item = NSTabViewItem(viewController: host)
+        item.label = label
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        return item
+    }
 }
 
-private struct SettingsView: View {
+/// One settings tab: a grouped form as tall as its contents, up to `maxHeight`, then scrolling.
+struct SettingsPane<Content: View>: View {
+    static var width: CGFloat { 480 }
+    static var maxHeight: CGFloat { 760 }
+
+    @ViewBuilder var content: Content
+    @State private var contentHeight: CGFloat?
+
+    var body: some View {
+        ScrollView {
+            Form { content }
+                .formStyle(.grouped)
+                .scrollDisabled(true)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self, of: \.size.height) { contentHeight = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(width: Self.width, height: min(contentHeight ?? Self.maxHeight, Self.maxHeight))
+    }
+}
+
+private struct GeneralSettings: View {
     let settings: LoginSettings
     let hotKey: HotKeySettings
-    let doctor: ProviderDoctor
     @AppStorage(NewChatAfter.defaultsKey) private var newChatAfter = NewChatAfter.defaultValue
-    @AppStorage(AgentMode.bypassKey, store: AgentMode.defaults) private var bypassesPermissions = false
     @AppStorage(SystemPrompt.preferencesKey) private var preferences = ""
     @AppStorage(PlayfulPrompts.defaultsKey) private var playfulPrompts = false
 
     var body: some View {
-        Form {
+        SettingsPane {
             Section {
                 Toggle("Open ReGlance at login", isOn: Binding(
                     get: { settings.isEnabled },
@@ -134,8 +173,6 @@ private struct SettingsView: View {
                 Text("Swap \u{201C}Ask anything\u{201D} for a different nudge, like \u{201C}Do your worst\u{201D}, each time the bar opens.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-            } header: {
-                Text("General")
             }
             Section {
                 LabeledContent("Show or hide the chat bar") {
@@ -170,6 +207,18 @@ private struct SettingsView: View {
             } header: {
                 Text("Personal Preferences")
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            settings.refresh()
+        }
+    }
+}
+
+private struct AgentSettings: View {
+    @AppStorage(AgentMode.bypassKey, store: AgentMode.defaults) private var bypassesPermissions = false
+
+    var body: some View {
+        SettingsPane {
             Section {
                 Toggle("Bypass permissions", isOn: Binding(
                     get: { bypassesPermissions },
@@ -180,66 +229,73 @@ private struct SettingsView: View {
                      : "New agent chats run in auto mode: Claude Code runs actions it judges safe and blocks risky ones. They glow blue.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-            } header: {
-                Text("Agent Mode")
             }
-            ProviderSection(doctor: doctor)
-        }
-        .formStyle(.grouped)
-        .frame(width: 480)
-        .fixedSize(horizontal: true, vertical: true)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            settings.refresh()
         }
     }
 }
 
-private struct ProviderSection: View {
+private struct ProviderSettings: View {
     let doctor: ProviderDoctor
+    private var library: ModelLibrary { .shared }
 
     var body: some View {
-        ForEach(Backend.allCases) { backend in
-            Section {
-                ForEach(doctor.reports[backend]?.checks ?? []) { check in
-                    LabeledContent {
-                        Text(check.detail)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.trailing)
-                            .textSelection(.enabled)
-                    } label: {
-                        Label {
-                            Text(check.title)
-                        } icon: {
-                            Image(systemName: check.status.symbol).foregroundStyle(check.status.color)
-                        }
+        SettingsPane {
+            ForEach(Backend.allCases) { backend in
+                Section {
+                    if backend != .claude {
+                        Toggle("Use \(backend.displayName)", isOn: Binding(
+                            get: { library.isEnabled(backend) },
+                            set: { isOn in
+                                library.setEnabled(backend, isOn)
+                                if isOn { Task { await doctor.run() } }
+                            }
+                        ))
                     }
-                }
-                if let fullReport = doctor.reports[backend]?.fullReport {
-                    DisclosureGroup("Full report") {
-                        ScrollView {
-                            Text(fullReport)
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .frame(height: 200)
-                    }
-                }
-                if backend == .opencode { OpenCodeModelSettings() }
-            } header: {
-                HStack {
+                    if library.isEnabled(backend) { checks(for: backend) }
+                } header: {
                     Text(backend.displayName)
+                }
+            }
+            Section {
+                HStack {
                     Spacer()
-                    if backend == .claude {
-                        if doctor.isRunning {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Button("Check Again") { Task { await doctor.run() } }
-                        }
+                    if doctor.isRunning {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Check Again") { Task { await doctor.run() } }
                     }
                 }
             }
         }
+    }
+
+    @ViewBuilder private func checks(for backend: Backend) -> some View {
+        ForEach(doctor.reports[backend]?.checks ?? []) { check in
+            LabeledContent {
+                Text(check.detail)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
+            } label: {
+                Label {
+                    Text(check.title)
+                } icon: {
+                    Image(systemName: check.status.symbol).foregroundStyle(check.status.color)
+                }
+            }
+        }
+        if let fullReport = doctor.reports[backend]?.fullReport {
+            DisclosureGroup("Full report") {
+                ScrollView {
+                    Text(fullReport)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 200)
+            }
+        }
+        if backend == .opencode { OpenCodeModelSettings() }
     }
 }
 
