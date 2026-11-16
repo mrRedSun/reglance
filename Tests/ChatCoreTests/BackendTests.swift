@@ -60,14 +60,6 @@ private func router(_ calls: Calls) -> BackendRouter {
     #expect(loaded.model == ChatModel(backend: .opencode, id: "openai/gpt-5.5"))
 }
 
-@Test func modelArguments() {
-    #expect(ChatModel(argument: "opus") == .opus)
-    #expect(ChatModel(argument: "codex:gpt-5.5") == ChatModel(backend: .codex, id: "gpt-5.5"))
-    #expect(ChatModel(argument: "opencode:openai/gpt-5.5") == ChatModel(backend: .opencode, id: "openai/gpt-5.5"))
-    #expect(ChatModel(argument: "gpt-5.5") == nil)
-    #expect(ChatModel(argument: "codex:") == nil)
-}
-
 @MainActor @Test func aChatNeverMovesToAnotherBackend() async throws {
     let store = backendStore()
     defer { try? FileManager.default.removeItem(at: store.directory) }

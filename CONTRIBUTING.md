@@ -54,21 +54,6 @@ scripts/capture-readme.sh hero picker   # only these
 
 Your terminal needs Screen Recording permission. Leave the mouse alone while it runs and turn on Do Not Disturb. To add a scene, add a case to `DemoScene.Name`, stage it in `play`, add it to the script's default list, and reference `docs/images/<scene>-light|dark` in the README.
 
-## Terminal client
-
-`reglance-cli` goes through the same `ChatController` and `ClaudeClient` code as the app and saves to the same chat history:
-
-```sh
-swift run reglance-cli ask --model haiku "Which dogs can't bark?"
-swift run reglance-cli ask --chat <chat-id> "Why do they yodel?"     # follow-up via --resume
-swift run reglance-cli ask --model opus --effort high "Explain this"   # explicit effort
-swift run reglance-cli regenerate <chat-id>                          # replace the last reply
-swift run reglance-cli ask --stop-after 2 "Write a long essay"       # cancel, like the stop button
-swift run reglance-cli ask --attach shot.png "What's in this?"       # attachments; repeatable
-swift run reglance-cli ask --agent ~/Projects/app "Run the tests"     # agent chat: auto mode
-swift run reglance-cli list
-```
-
 ## How it talks to Claude
 
 Each message goes to `claude -p --input-format stream-json` as one JSON user message on stdin: images as base64 image blocks, PDFs as document blocks, text files inlined. The system prompt is in `Sources/ChatCore/SystemPrompt.swift`. It fills in today's date and the user's region, units and currency from macOS settings. In ordinary chats, the only tools enabled are WebSearch and WebFetch.
@@ -79,7 +64,7 @@ The app looks for `claude` in the usual install locations (`~/.local/bin`, Homeb
 
 ### Codex
 
-Install Codex (`brew install --cask codex`) and run `codex` once to sign in; Settings checks both. Each turn starts its own `codex app-server` (JSON-RPC over stdio, ready in well under a second) in `CodexWorkdir/`, with Reglance's system prompt as the thread's base instructions, so replies stream token by token. A follow-up forks the previous reply's thread (`thread/fork`), so every reply has its own id, like Claude's `--fork-session`. Stop sends `turn/interrupt` and ends the process. The picker's models come from `model/list` (`reglance-cli models` prints them).
+Install Codex (`brew install --cask codex`) and run `codex` once to sign in; Settings checks both. Each turn starts its own `codex app-server` (JSON-RPC over stdio, ready in well under a second) in `CodexWorkdir/`, with Reglance's system prompt as the thread's base instructions, so replies stream token by token. A follow-up forks the previous reply's thread (`thread/fork`), so every reply has its own id, like Claude's `--fork-session`. Stop sends `turn/interrupt` and ends the process. The picker's models come from `model/list`.
 
 Codex reads your own `~/.codex`, where its sign-in lives; Reglance never copies credentials. To keep a chat to web search, it disables every MCP server named in your `config.toml` and the features that add tools or run code (the shell, hooks, apps, plugins, skills, sub-agents, goals, image tools, the browser, computer use and memories), and runs each thread read-only with approvals off. If Codex still starts an MCP server or anything but a web search, the reply stops with an error. Your global `~/.codex/AGENTS.md` is still loaded, because Codex has no setting to skip it, and Codex chats appear in your Codex history. PDFs aren't supported.
 
@@ -103,7 +88,6 @@ Everything is stored under `~/Library/Application Support/Reglance/`:
 
 - `Sources/ChatCore`: no UI. `ClaudeClient` (subprocess, stream-json parsing, cancel), `SystemPrompt`, `ClaudeLocator`, `Chat`/`Message`, `Attachment`, `ReplyContent` (splits replies into markdown and widget blocks), `ChatStore` (JSON persistence), `ChatController` (shared observable state), `DemoMode` and `DemoContent`.
 - `Sources/Reglance`: the app. `FloatingPanel` (non-activating panel), `HotKey` (Carbon global hotkey, no Accessibility permission needed, and the saved shortcut), `PromptBarView` (the one composer both windows use), `ReplyView` (expanded panel and `MessageView`, which renders every message in both windows), `ReplyBody` (markdown, chart and document cards), `HTMLWidget` (sandboxed web view), `Attachments`, `PromptEditor` (native text and screenshot paste), `MainWindow`, `SettingsWindow` (login item, shortcut recorder, personal preferences, agent permissions and the provider doctor, whose checks live in `ChatCore/ClaudeDoctor`), `AgentMode` (agent-mode confirmations, permissions, folder picker, badge), `DemoScene` (README shots), `WindowDragRegion`, `MarkdownText`.
-- `Sources/reglance-cli`: the terminal client.
 - `Formula/reglance.rb`: the Homebrew formula. `scripts/build-app.sh` does the same build locally.
 - `scripts/make-icon.swift`: draws the app icon and writes `Resources/AppIcon.icns`. Rerun it after changing the drawing.
 - `scripts/capture-readme.sh`: regenerates `docs/images/`.

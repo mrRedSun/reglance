@@ -71,17 +71,6 @@ public struct ChatModel: Codable, Hashable, Sendable {
         }
     }
 
-    /// `haiku|sonnet|opus` for Claude, or `<backend>:<model id>`, as the terminal client takes it.
-    public init?(argument: String) {
-        if let claude = ClaudeModel.allCases.first(where: { $0.displayName.lowercased() == argument.lowercased() }) {
-            self = .claude(claude)
-            return
-        }
-        let parts = argument.split(separator: ":", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let backend = Backend(rawValue: parts[0]), !parts[1].isEmpty else { return nil }
-        self.init(backend: backend, id: parts[1])
-    }
-
     private enum CodingKeys: String, CodingKey { case backend, id }
 
     /// Chats saved before backends stored the Claude model id as a plain string.
