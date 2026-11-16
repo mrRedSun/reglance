@@ -127,19 +127,34 @@ final class ModelLibrary {
     }
 }
 
-extension View {
-    /// Keeps a composer's model on `backend` (an open chat's backend, or Claude for a new
-    /// agent chat), so the pill never shows a model the next message wouldn't use.
-    func lockModel(_ model: Binding<ChatModel>, effort: Binding<Effort>, to backend: Backend?, chat: Chat?) -> some View {
-        onChange(of: backend, initial: true) { _, backend in
-            guard let backend, model.wrappedValue.backend != backend else { return }
-            if let chat, chat.backend == backend {
-                model.wrappedValue = chat.model
-                effort.wrappedValue = chat.effort
-            } else if let fallback = ModelLibrary.shared.defaultModel(for: backend) {
-                model.wrappedValue = fallback
-                effort.wrappedValue = .automatic
+/// Keeps a composer's model on the backend the next message must use: the open chat's,
+/// or Claude Code for a new agent chat. Switching a new chat to agent mode replaces a
+/// Codex or OpenCode model with Claude's default; the replaced choice is kept, shown in
+/// the agent row, and restored when agent mode is turned off.
+struct ModelLock {
+    private var saved: (model: ChatModel, effort: Effort)?
+
+    /// The model agent mode replaced, while it's replaced.
+    var switchedFrom: ChatModel? { saved?.model }
+
+    mutating func apply(_ backend: Backend?, chat: Chat?, model: inout ChatModel, effort: inout Effort,
+                        library: ModelLibrary = .shared) {
+        guard let backend else {
+            if let saved {
+                model = saved.model
+                effort = saved.effort
+                self.saved = nil
             }
+            return
+        }
+        guard model.backend != backend else { return }
+        if let chat, chat.backend == backend {
+            model = chat.model
+            effort = chat.effort
+        } else if let fallback = library.defaultModel(for: backend) {
+            if chat == nil, saved == nil { saved = (model, effort) }
+            model = fallback
+            effort = .automatic
         }
     }
 }

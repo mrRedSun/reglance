@@ -36,6 +36,7 @@ struct PromptBarView: View {
     var chat: Chat? = nil
 
     @State private var localPickerIsPresented = false
+    @State private var modelLock = ModelLock()
     @AppStorage(PlayfulPrompts.defaultsKey) private var playfulPrompts = false
     @State private var playfulPrompt = PlayfulPrompts.random()
 
@@ -69,7 +70,12 @@ struct PromptBarView: View {
     private var showsTray: Bool { !tray.drafts.isEmpty || tray.error != nil || tray.isPreparing }
 
     var body: some View {
-        layers.lockModel($model, effort: $effort, to: lockedBackend, chat: chat)
+        layers.onChange(of: lockedBackend, initial: true) { _, backend in
+            var newModel = model, newEffort = effort
+            modelLock.apply(backend, chat: chat, model: &newModel, effort: &newEffort)
+            if newModel != model { model = newModel }
+            if newEffort != effort { effort = newEffort }
+        }
     }
 
     @ViewBuilder private var layers: some View {
@@ -133,6 +139,14 @@ struct PromptBarView: View {
             .lineLimit(1)
             .truncationMode(.middle)
             Spacer(minLength: 0)
+            if let replaced = modelLock.switchedFrom, replaced.backend != .claude {
+                // Agent mode runs on Claude Code only; the earlier model returns when it's off.
+                Text("Runs on Claude Code")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help("\(ModelLibrary.shared.name(for: replaced)) comes back when agent mode is off.")
+            }
         }
         .padding(.top, 4)
     }
