@@ -30,13 +30,13 @@ import Testing
 }
 
 @Test func buildsResumeArguments() {
-    let args = ClaudeClient.arguments(model: .opus, resume: "sid")
+    let args = ClaudeClient.arguments(model: ClaudeModel.opus.rawValue, resume: "sid")
     #expect(args.suffix(3) == ["--resume", "sid", "--fork-session"])
     #expect(args.contains("claude-opus-5-5"))
 }
 
 @Test func newChatHasNoResume() {
-    #expect(!ClaudeClient.arguments(model: .haiku, resume: nil).contains("--resume"))
+    #expect(!ClaudeClient.arguments(model: ClaudeModel.haiku.rawValue, resume: nil).contains("--resume"))
 }
 
 @Test func parsesThinkingAndSkipsEmptyThinking() {
@@ -74,7 +74,7 @@ import Testing
 }
 
 @Test func enablesOnlyWebTools() {
-    let args = ClaudeClient.arguments(model: .haiku, resume: nil)
+    let args = ClaudeClient.arguments(model: ClaudeModel.haiku.rawValue, resume: nil)
     #expect(args[args.firstIndex(of: "--tools")! + 1] == "WebSearch,WebFetch")
     #expect(args.contains("--strict-mcp-config") && args.contains("--disable-slash-commands"))
 }

@@ -60,6 +60,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func show(chatID: UUID? = nil) {
         NSApp.setActivationPolicy(.regular)
+        Task { await ModelLibrary.shared.refresh() }
         if let chat = chats.chat(chatID) {
             model.showsArchive = chat.isArchived
             model.selection = chat.id
@@ -364,8 +365,8 @@ private struct ConversationView: View {
     @Bindable var window: MainWindowModel
     @State private var text = ""
     @State private var attachments = AttachmentTray()
-    @State private var model: ClaudeModel
-    @State private var effort: ClaudeEffort
+    @State private var model: ChatModel
+    @State private var effort: Effort
     @State private var focusToken = 0
     /// Observed so a composer already in agent mode recolours when Settings changes.
     @AppStorage(AgentMode.bypassKey, store: AgentMode.defaults) private var bypassesPermissions = false
@@ -374,7 +375,7 @@ private struct ConversationView: View {
         self.chats = chats
         self.window = window
         let selected = chats.chat(window.selection)
-        _model = State(initialValue: selected?.model ?? LastModelChoice().model)
+        _model = State(initialValue: selected?.model ?? ModelLibrary.shared.usable(LastModelChoice().model))
         _effort = State(initialValue: selected?.effort ?? LastModelChoice().effort)
     }
 
@@ -442,7 +443,8 @@ private struct ConversationView: View {
                     onChooseAgentDirectory: chat == nil ? {
                         if let directory = AgentMode.chooseDirectory() { window.agentDirectory = directory }
                         focusToken += 1
-                    } : nil
+                    } : nil,
+                    chat: chat
                 )
                 .frame(maxWidth: 820)
                 .attachmentDrop(attachments)

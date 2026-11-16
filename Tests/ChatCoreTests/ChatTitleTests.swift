@@ -2,10 +2,10 @@ import Foundation
 import Testing
 @testable import ChatCore
 
-private struct TitlingClient: ClaudeStreamingClient {
+private struct TitlingClient: ChatStreamingClient {
     let title: String?
 
-    func send(_ content: [ContentBlock], model: ClaudeModel, effort: ClaudeEffort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
         AsyncThrowingStream { continuation in
             continuation.yield(.text("Basenjis yodel instead of barking."))
             continuation.yield(.finished(sessionID: "title-session", fullText: "Basenjis yodel instead of barking."))
@@ -13,7 +13,7 @@ private struct TitlingClient: ClaudeStreamingClient {
         }
     }
 
-    func title(question: String, answer: String) async -> String? { title }
+    func title(question: String, answer: String, model: ChatModel) async -> String? { title }
 }
 
 private func titleStore() -> ChatStore {

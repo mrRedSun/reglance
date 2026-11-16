@@ -7,8 +7,8 @@ import SwiftUI
 /// Used by the floating panel and by the main window's conversation view.
 struct PromptBarView: View {
     @Binding var text: String
-    @Binding var model: ClaudeModel
-    @Binding var effort: ClaudeEffort
+    @Binding var model: ChatModel
+    @Binding var effort: Effort
     /// Dropped and pasted files, shown as chips above the text.
     let tray: AttachmentTray
     var isStreaming: Bool
@@ -32,8 +32,11 @@ struct PromptBarView: View {
     var onToggleAgent: () -> Void = {}
     /// Changes the agent folder. Nil once the chat exists, since its folder is fixed.
     var onChooseAgentDirectory: (() -> Void)? = nil
+    /// The open chat, whose backend the picker is locked to.
+    var chat: Chat? = nil
 
     @State private var localPickerIsPresented = false
+    @State private var modelLock = ModelLock()
     @AppStorage(PlayfulPrompts.defaultsKey) private var playfulPrompts = false
     @State private var playfulPrompt = PlayfulPrompts.random()
 
@@ -48,6 +51,16 @@ struct PromptBarView: View {
         reduceMotion ? .easeOut(duration: 0.10) : .spring(response: 0.38, dampingFraction: 0.80)
     }
 
+    /// The backend the next message must use: the open chat's, or Claude Code for a new
+    /// agent chat (agent mode runs on Claude Code only). Nil leaves every backend open.
+    var lockedBackend: Backend? {
+        Self.lockedBackend(chat: chat, agentDirectory: agentDirectory)
+    }
+
+    static func lockedBackend(chat: Chat?, agentDirectory: URL?) -> Backend? {
+        chat?.backend ?? (agentDirectory != nil ? .claude : nil)
+    }
+
     /// One composer size for the floating bar and the chats window.
     private var editorInset: CGFloat { ComposerShape.editorInset }
 
@@ -57,6 +70,15 @@ struct PromptBarView: View {
     private var showsTray: Bool { !tray.drafts.isEmpty || tray.error != nil || tray.isPreparing }
 
     var body: some View {
+        layers.onChange(of: lockedBackend, initial: true) { _, backend in
+            var newModel = model, newEffort = effort
+            modelLock.apply(backend, chat: chat, model: &newModel, effort: &newEffort)
+            if newModel != model { model = newModel }
+            if newEffort != effort { effort = newEffort }
+        }
+    }
+
+    @ViewBuilder private var layers: some View {
         if usesExternalPicker {
             // The floating root owns the shared glass container and accessory.
             composer
@@ -65,6 +87,7 @@ struct PromptBarView: View {
                 .agentGlow(isOn: agentDirectory != nil, color: agentPermissions.color,
                            cornerRadius: ComposerShape.cornerRadius)
                 .modelPickerOverlay(isPresented: pickerPresentation.wrappedValue, model: $model, effort: $effort,
+                                    backend: lockedBackend,
                                     reduceMotion: reduceMotion, onDone: dismissPicker)
             // The card floats over the conversation above the composer.
             .zIndex(1)
@@ -116,6 +139,14 @@ struct PromptBarView: View {
             .lineLimit(1)
             .truncationMode(.middle)
             Spacer(minLength: 0)
+            if let replaced = modelLock.switchedFrom, replaced.backend != .claude {
+                // Agent mode runs on Claude Code only; the earlier model returns when it's off.
+                Text("Runs on Claude Code")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help("\(ModelLibrary.shared.name(for: replaced)) comes back when agent mode is off.")
+            }
         }
         .padding(.top, 4)
     }

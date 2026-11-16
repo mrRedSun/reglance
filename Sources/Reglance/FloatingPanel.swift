@@ -29,8 +29,8 @@ final class FloatingPanel: NSPanel {
 final class FloatingBarModel {
     var text = ""
     let attachments = AttachmentTray()
-    var model: ClaudeModel { didSet { lastChoice.model = model } }
-    var effort: ClaudeEffort { didSet { lastChoice.effort = effort } }
+    var model: ChatModel { didSet { lastChoice.model = model } }
+    var effort: Effort { didSet { lastChoice.effort = effort } }
     @ObservationIgnored private var lastChoice: LastModelChoice
     /// The chat shown under the bar; nil means the next send starts a new chat.
     var chatID: UUID?
@@ -43,13 +43,13 @@ final class FloatingBarModel {
 
     init(lastChoice: LastModelChoice = LastModelChoice()) {
         self.lastChoice = lastChoice
-        model = lastChoice.model
+        model = ModelLibrary.shared.usable(lastChoice.model)
         effort = lastChoice.effort
     }
 
     /// Picks up a choice made in the chats window since the bar last opened.
     func adoptLastChoice() {
-        model = lastChoice.model
+        model = ModelLibrary.shared.usable(lastChoice.model)
         effort = lastChoice.effort
     }
 
@@ -64,16 +64,25 @@ final class FloatingBarModel {
 /// The model and effort last chosen in either composer; new chats start with them.
 struct LastModelChoice {
     private static let modelKey = "lastModel"
+    /// Missing before Codex and OpenCode: a saved model without it is a Claude model.
+    private static let backendKey = "lastModelBackend"
     private static let effortKey = "lastEffort"
     var defaults = AgentMode.defaults
 
-    var model: ClaudeModel {
-        get { defaults.string(forKey: Self.modelKey).flatMap(ClaudeModel.init(rawValue:)) ?? .sonnet }
-        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.modelKey) }
+    var model: ChatModel {
+        get {
+            guard let id = defaults.string(forKey: Self.modelKey) else { return .sonnet }
+            let backend = defaults.string(forKey: Self.backendKey).flatMap(Backend.init(rawValue:)) ?? .claude
+            return ChatModel(backend: backend, id: id)
+        }
+        nonmutating set {
+            defaults.set(newValue.id, forKey: Self.modelKey)
+            defaults.set(newValue.backend.rawValue, forKey: Self.backendKey)
+        }
     }
 
-    var effort: ClaudeEffort {
-        get { defaults.string(forKey: Self.effortKey).flatMap(ClaudeEffort.init(rawValue:)) ?? .automatic }
+    var effort: Effort {
+        get { defaults.string(forKey: Self.effortKey).flatMap(Effort.init(rawValue:)) ?? .automatic }
         nonmutating set { defaults.set(newValue.rawValue, forKey: Self.effortKey) }
     }
 }
@@ -236,6 +245,7 @@ final class FloatingPanelController {
 
     func show() {
         let isEntering = !panel.isVisible
+        Task { await ModelLibrary.shared.refresh() }
         if isEntering {
             startNewChatIfIdle()
             if model.chatID == nil { model.adoptLastChoice() }
@@ -367,6 +377,7 @@ private struct FloatingRootView: View {
                    color: (chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto)).color,
                    cornerRadius: chat == nil ? ComposerShape.cornerRadius : ComposerShape.panelCornerRadius)
         .modelPickerOverlay(isPresented: bar.pickerIsPresented, model: $bar.model, effort: $bar.effort,
+                            backend: PromptBarView.lockedBackend(chat: chat, agentDirectory: bar.agentDirectory),
                             reduceMotion: reduceMotion,
                             onDone: {
                                 withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.80)) {
@@ -399,7 +410,8 @@ private struct FloatingRootView: View {
             agentDirectory: chat.map(\.agentDirectory) ?? bar.agentDirectory,
             agentPermissions: chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto),
             onToggleAgent: toggleAgent,
-            onChooseAgentDirectory: chat == nil ? chooseAgentDirectory : nil
+            onChooseAgentDirectory: chat == nil ? chooseAgentDirectory : nil,
+            chat: chat
         )
     }
 }

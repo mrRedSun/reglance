@@ -12,6 +12,26 @@ public enum DemoContent {
     }
 
     /// The question the hero scene types into the floating bar.
+    /// The picker in demo mode, which never asks a CLI for its models.
+    public static let models: [ModelOption] = [
+        ModelOption(model: .haiku, name: "Haiku 5.5", detail: "Fastest for quick answers", efforts: demoEfforts),
+        ModelOption(model: .sonnet, name: "Sonnet 5.5", detail: "Efficient for routine tasks", efforts: demoEfforts),
+        ModelOption(model: .opus, name: "Opus 5.5", detail: "Best for everyday, complex tasks", efforts: demoEfforts),
+    ]
+    static let demoEfforts: [Effort] = [.automatic, .low, .medium, .high, .xhigh, .max]
+
+    /// Codex and OpenCode in demo mode, so the picker shows every backend's section.
+    public static let codexModels: [ModelOption] = [
+        ModelOption(model: ChatModel(backend: .codex, id: "gpt-6-astra"), name: "GPT-6-Astra",
+                    detail: "Frontier intelligence", efforts: demoEfforts),
+        ModelOption(model: ChatModel(backend: .codex, id: "gpt-6-luna"), name: "GPT-6-Luna",
+                    detail: "Fast and affordable model", efforts: demoEfforts),
+    ]
+    public static let openCodeModels: [ModelOption] = [
+        ModelOption(model: ChatModel(backend: .opencode, id: "zai-coding-plan/glm-5.3"), name: "GLM-5.3",
+                    detail: "Z.AI Coding Plan", efforts: [.automatic, .low, .high, .max]),
+    ]
+
     public static let heroQuestion = "How much caffeine is in coffee vs. tea?"
     /// The question the attachments scene types next to its floor plan and lease.
     public static let attachmentQuestion = "Does this floor plan match what the lease says?"
@@ -166,7 +186,7 @@ public enum DemoContent {
     /// The library a demo starts with, newest first, with dates relative to `now`.
     static func chats(now: Date) -> [Chat] {
         func chat(_ reply: Reply, hoursAgo: Double, pinned: Bool = false, archived: Bool = false,
-                  model: ClaudeModel = .sonnet, agentDirectory: URL? = nil) -> Chat {
+                  model: ChatModel = .sonnet, agentDirectory: URL? = nil) -> Chat {
             let asked = now.addingTimeInterval(-hoursAgo * 3600)
             var chat = Chat(firstMessage: reply.question, model: model, agentDirectory: agentDirectory)
             chat.title = reply.title

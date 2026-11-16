@@ -1,30 +1,26 @@
 import Foundation
 
+/// Claude model ids the app needs before or without Claude Code's model list: the default
+/// for a new chat, titles, and demo mode. Names and descriptions come from the CLI.
 public enum ClaudeModel: String, Codable, CaseIterable, Identifiable, Sendable {
     case haiku = "claude-haiku-5-5"
     case sonnet = "claude-sonnet-5-5"
     case opus = "claude-opus-5-5"
 
     public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .haiku: "Haiku"
-        case .sonnet: "Sonnet"
-        case .opus: "Opus"
-        }
-    }
 }
 
-/// Values accepted by the Claude CLI's `--effort` option. Automatic leaves the CLI default unchanged.
-public enum ClaudeEffort: String, Codable, CaseIterable, Identifiable, Sendable {
-    case automatic, low, medium, high, xhigh, max
+/// Reasoning effort. Each backend maps it to its own option and accepts a subset
+/// (`ModelOption.efforts`). Automatic leaves the CLI default unchanged.
+public enum Effort: String, Codable, CaseIterable, Identifiable, Sendable {
+    case automatic, minimal, low, medium, high, xhigh, max
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
         case .automatic: "Automatic"
+        case .minimal: "Minimal"
         case .low: "Low"
         case .medium: "Medium"
         case .high: "High"
@@ -105,10 +101,11 @@ public struct Chat: Codable, Identifiable, Equatable, Sendable {
     public var titleIsAutomatic: Bool
     public var createdAt: Date
     public var updatedAt: Date
-    /// Claude CLI session id, used with `--resume` for follow-ups.
+    /// The backend CLI's session id, used to resume for follow-ups.
     public var sessionID: String?
-    public var model: ClaudeModel
-    public var effort: ClaudeEffort
+    /// Its backend is fixed when the chat is created; only the model on that backend changes.
+    public var model: ChatModel
+    public var effort: Effort
     public var isPinned: Bool
     public var isArchived: Bool
     /// Set for agent chats: the folder the CLI runs in, with the normal Claude Code
@@ -122,8 +119,9 @@ public struct Chat: Codable, Identifiable, Equatable, Sendable {
     public var messages: [Message]
 
     public var isAgent: Bool { agentDirectory != nil }
+    public var backend: Backend { model.backend }
 
-    public init(firstMessage: String, model: ClaudeModel, effort: ClaudeEffort = .automatic, agentDirectory: URL? = nil,
+    public init(firstMessage: String, model: ChatModel, effort: Effort = .automatic, agentDirectory: URL? = nil,
                 agentPermissions: AgentPermissions = .auto) {
         let now = Date()
         self.id = UUID()
@@ -154,8 +152,8 @@ public struct Chat: Codable, Identifiable, Equatable, Sendable {
         createdAt = try values.decode(Date.self, forKey: .createdAt)
         updatedAt = try values.decode(Date.self, forKey: .updatedAt)
         sessionID = try values.decodeIfPresent(String.self, forKey: .sessionID)
-        model = try values.decode(ClaudeModel.self, forKey: .model)
-        effort = try values.decodeIfPresent(ClaudeEffort.self, forKey: .effort) ?? .automatic
+        model = try values.decode(ChatModel.self, forKey: .model)
+        effort = try values.decodeIfPresent(Effort.self, forKey: .effort) ?? .automatic
         isPinned = try values.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         isArchived = try values.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         agentDirectory = try values.decodeIfPresent(URL.self, forKey: .agentDirectory)
