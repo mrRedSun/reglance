@@ -94,7 +94,13 @@ private func consume(_ events: [[String: Any]], into parser: inout OpenCodeStrea
         ["id": "old", "providerID": "openai", "name": "Old", "status": "deprecated"],
         ["id": "off", "providerID": "openai", "name": "Off", "enabled": false],
     ]
-    let options = OpenCodeBackend.modelOptions(from: models)
+    // Provider names come from `/api/provider`; a blank name is left out, so the id shows.
+    let providers = OpenCodeBackend.providerNames(from: [
+        ["id": "openai", "name": "OpenAI"], ["id": "opencode", "name": "OpenCode"],
+        ["id": "zai-coding-plan", "name": "Z.AI Coding Plan"], ["id": "blank", "name": ""],
+    ])
+    #expect(providers == ["openai": "OpenAI", "opencode": "OpenCode", "zai-coding-plan": "Z.AI Coding Plan"])
+    let options = OpenCodeBackend.modelOptions(from: models, providerNames: providers)
     #expect(options.map(\.model.id) == ["openai/gpt-5.5", "opencode/big-pickle", "zai-coding-plan/glm-5.3-flash"])
     #expect(options.allSatisfy { $0.model.backend == .opencode })
     #expect(options[0].name == "GPT-5.5" && options[0].detail == "OpenAI")

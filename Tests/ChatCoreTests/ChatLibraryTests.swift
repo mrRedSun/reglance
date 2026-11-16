@@ -41,9 +41,8 @@ private struct TestClaudeClient: ChatStreamingClient {
 }
 
 @Test func effortArgumentsPreserveEveryModel() {
-    #expect(ClaudeBackend.claudeEfforts.map(\.rawValue) == ["automatic", "low", "medium", "high", "xhigh", "max"])
     for model in ClaudeModel.allCases.map(\.rawValue) {
-        for effort in ClaudeBackend.claudeEfforts {
+        for effort in Effort.allCases {
             let args = ClaudeClient.arguments(model: model, effort: effort, resume: "session")
             #expect(args[args.firstIndex(of: "--model")! + 1] == model)
             #expect(!args.contains("--fallback-model"))

@@ -60,6 +60,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func show(chatID: UUID? = nil) {
         NSApp.setActivationPolicy(.regular)
+        Task { await ModelLibrary.shared.refresh() }
         if let chat = chats.chat(chatID) {
             model.showsArchive = chat.isArchived
             model.selection = chat.id
@@ -374,7 +375,7 @@ private struct ConversationView: View {
         self.chats = chats
         self.window = window
         let selected = chats.chat(window.selection)
-        _model = State(initialValue: selected?.model ?? LastModelChoice().model)
+        _model = State(initialValue: selected?.model ?? ModelLibrary.shared.usable(LastModelChoice().model))
         _effort = State(initialValue: selected?.effort ?? LastModelChoice().effort)
     }
 

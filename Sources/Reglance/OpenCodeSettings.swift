@@ -41,7 +41,7 @@ struct OpenCodeModelSettings: View {
             }
         }
         .task {
-            available = await OpenCodeBackend.availableModels()
+            available = await OpenCodeBackend.availableModels() ?? []
         }
     }
 
@@ -61,7 +61,7 @@ struct OpenCodeModelSettings: View {
             set: { isOn in
                 if isOn { enabled.insert(id) } else { enabled.remove(id) }
                 OpenCodeBackend.enabledModels = (available ?? []).map(\.model.id).filter(enabled.contains)
-                Task { await ModelLibrary.shared.refresh() }
+                Task { await ModelLibrary.shared.refresh([.opencode], force: true) }
             }
         )
     }

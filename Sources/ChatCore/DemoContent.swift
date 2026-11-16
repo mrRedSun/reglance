@@ -12,6 +12,14 @@ public enum DemoContent {
     }
 
     /// The question the hero scene types into the floating bar.
+    /// The picker in demo mode, which never asks a CLI for its models.
+    public static let models: [ModelOption] = [
+        ModelOption(model: .haiku, name: "Haiku 5.5", detail: "Fastest for quick answers", efforts: demoEfforts),
+        ModelOption(model: .sonnet, name: "Sonnet 5.5", detail: "Efficient for routine tasks", efforts: demoEfforts),
+        ModelOption(model: .opus, name: "Opus 5.5", detail: "Best for everyday, complex tasks", efforts: demoEfforts),
+    ]
+    static let demoEfforts: [Effort] = [.automatic, .low, .medium, .high, .xhigh, .max]
+
     public static let heroQuestion = "How much caffeine is in coffee vs. tea?"
     /// The question the attachments scene types next to its floor plan and lease.
     public static let attachmentQuestion = "Does this floor plan match what the lease says?"

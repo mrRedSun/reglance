@@ -13,7 +13,7 @@ struct ModelPickerPill: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Text(model.displayName).font(.system(size: 12.5, weight: .semibold))
+                Text(ModelLibrary.shared.name(for: model)).font(.system(size: 12.5, weight: .semibold))
                 if effort != .automatic {
                     Text("· \(effort.displayName)").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
@@ -43,7 +43,7 @@ struct ModelPickerPill: View {
         .padding(.bottom, 2)
         .help("Choose model and effort")
         .accessibilityLabel("Model and effort")
-        .accessibilityValue("\(model.displayName), \(effort.displayName)")
+        .accessibilityValue("\(ModelLibrary.shared.name(for: model)), \(effort.displayName)")
     }
 }
 
@@ -133,7 +133,7 @@ struct ModelPickerPanel: View {
             ForEach(backends) { backend in
                 // One backend keeps the original single "Model" column.
                 sectionTitle(backends.count > 1 ? backend.displayName : "Model")
-                ForEach(library.options[backend] ?? []) { choice in
+                ForEach(library.pickerOptions(for: backend, selected: model)) { choice in
                     PickerChoice(isSelected: model == choice.model, action: { model = choice.model; onDone() }) {
                         HStack(spacing: 9) {
                             Image(systemName: choice.symbol)

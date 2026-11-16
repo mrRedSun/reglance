@@ -225,7 +225,9 @@ public actor OpenCodeServer {
         @discardableResult
         func send(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> [String: Any] {
             let (data, response) = try await Self.session.data(for: request(method, path, body: body))
-            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+            let json = try? JSONSerialization.jsonObject(with: data)
+            // Lists may come bare; they're returned under "data", like the others.
+            let object = json as? [String: Any] ?? (json as? [Any]).map { ["data": $0] } ?? [:]
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 let message = object["message"] as? String ?? (object["error"] as? [String: Any])?["message"] as? String
                 throw ChatError.failed("OpenCode: \(message ?? "request failed (\((response as? HTTPURLResponse)?.statusCode ?? 0))").")

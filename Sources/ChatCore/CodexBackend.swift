@@ -14,16 +14,16 @@ public enum CodexBackend {
     }
 
     /// The picker's models, from the app-server's `model/list`. Only read-only commands;
-    /// nothing is sent to a model. Empty when codex isn't installed or the call fails.
-    public static func models() async -> [ModelOption] {
+    /// nothing is sent to a model. Nil when codex isn't installed or the call fails.
+    public static func models() async -> [ModelOption]? {
         await Task.detached {
             guard let executable = executableURL(),
                   let server = try? CodexServer(executable: executable, workingDirectory: AppPaths.workdir(for: .codex))
-            else { return [] }
+            else { return nil }
             defer { server.terminate() }
             guard (try? await server.handshake()) != nil,
                   let result = try? await server.request("model/list", params: [:]),
-                  let data = result["data"] as? [[String: Any]] else { return [] }
+                  let data = result["data"] as? [[String: Any]] else { return nil }
             return modelOptions(from: data)
         }.value
     }
@@ -45,7 +45,6 @@ public enum CodexBackend {
             return ModelOption(model: ChatModel(backend: .codex, id: id),
                                name: (model["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? id,
                                detail: detail,
-                               symbol: "sparkles",
                                efforts: [.automatic] + efforts)
         }
     }

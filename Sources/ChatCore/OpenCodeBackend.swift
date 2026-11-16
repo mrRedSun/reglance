@@ -26,20 +26,22 @@ public enum OpenCodeBackend {
 
     /// The picker's models: the enabled ones that are still available. Asks the server
     /// only when something is enabled, so nothing runs for people who don't use OpenCode.
-    public static func models() async -> [ModelOption] {
+    public static func models() async -> [ModelOption]? {
         let enabled = enabledModels
         guard !enabled.isEmpty else { return [] }
-        return filter(await availableModels(), enabled: enabled)
+        return await availableModels().map { filter($0, enabled: enabled) }
     }
 
-    /// Every model the signed-in providers offer, for Settings. Empty when OpenCode isn't
+    /// Every model the signed-in providers offer, for Settings. Nil when OpenCode isn't
     /// installed, is older than version 2, or the server can't start.
-    public static func availableModels() async -> [ModelOption] {
+    public static func availableModels() async -> [ModelOption]? {
         guard let executable = executableURL(),
               let connection = try? await OpenCodeServer.shared.connect(executable: executable),
               let response = try? await connection.send("GET", "/api/model"),
-              let models = response["data"] as? [[String: Any]] else { return [] }
-        return modelOptions(from: models)
+              let models = response["data"] as? [[String: Any]] else { return nil }
+        // Provider names are only for display; without them the ids show.
+        let providers = (try? await connection.send("GET", "/api/provider"))?["data"] as? [[String: Any]] ?? []
+        return modelOptions(from: models, providerNames: providerNames(from: providers))
     }
 
     /// Enabled models in the order the person sees them in Settings.
@@ -51,7 +53,7 @@ public enum OpenCodeBackend {
     /// Maps `/api/model` to picker options. Pure, so tests cover it without a server.
     /// Disabled and deprecated models are skipped; variants become efforts where `Effort`
     /// has a matching level (OpenAI's `none` doesn't).
-    static func modelOptions(from models: [[String: Any]]) -> [ModelOption] {
+    static func modelOptions(from models: [[String: Any]], providerNames: [String: String] = [:]) -> [ModelOption] {
         models.compactMap { model in
             guard let provider = model["providerID"] as? String,
                   let id = model["id"] as? String ?? model["modelID"] as? String,
@@ -61,24 +63,19 @@ public enum OpenCodeBackend {
             let efforts = variants.compactMap(Effort.init(rawValue:)).filter { $0 != .automatic }
             let name = (model["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? id
             return ModelOption(model: ChatModel(backend: .opencode, id: "\(provider)/\(id)"),
-                               name: name, detail: providerName(provider), symbol: "sparkles",
+                               name: name, detail: providerNames[provider] ?? provider,
                                efforts: [.automatic] + efforts)
         }
         .sorted { ($0.detail, $0.name) < ($1.detail, $1.name) }
     }
 
-    /// A readable provider name for the ids OpenCode ships with; others stay as they are.
-    static func providerName(_ id: String) -> String {
-        switch id {
-        case "openai": "OpenAI"
-        case "anthropic": "Anthropic"
-        case "opencode": "OpenCode Zen"
-        case "zai": "Z.AI"
-        case "zai-coding-plan": "Z.AI Coding Plan"
-        case "google": "Google"
-        case "openrouter": "OpenRouter"
-        default: id
-        }
+    /// Provider ids to names, from `/api/provider` (`zai-coding-plan` → "Z.AI Coding Plan").
+    static func providerNames(from providers: [[String: Any]]) -> [String: String] {
+        Dictionary(providers.compactMap { provider -> (String, String)? in
+            guard let id = provider["id"] as? String,
+                  let name = (provider["name"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return nil }
+            return (id, name)
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     public static func doctor() async -> DoctorReport {

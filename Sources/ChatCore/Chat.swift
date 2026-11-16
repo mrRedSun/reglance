@@ -1,19 +1,13 @@
 import Foundation
 
+/// Claude model ids the app needs before or without Claude Code's model list: the default
+/// for a new chat, titles, and demo mode. Names and descriptions come from the CLI.
 public enum ClaudeModel: String, Codable, CaseIterable, Identifiable, Sendable {
     case haiku = "claude-haiku-5-5"
     case sonnet = "claude-sonnet-5-5"
     case opus = "claude-opus-5-5"
 
     public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .haiku: "Haiku"
-        case .sonnet: "Sonnet"
-        case .opus: "Opus"
-        }
-    }
 }
 
 /// Reasoning effort. Each backend maps it to its own option and accepts a subset

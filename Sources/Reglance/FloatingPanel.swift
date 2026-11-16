@@ -43,13 +43,13 @@ final class FloatingBarModel {
 
     init(lastChoice: LastModelChoice = LastModelChoice()) {
         self.lastChoice = lastChoice
-        model = lastChoice.model
+        model = ModelLibrary.shared.usable(lastChoice.model)
         effort = lastChoice.effort
     }
 
     /// Picks up a choice made in the chats window since the bar last opened.
     func adoptLastChoice() {
-        model = lastChoice.model
+        model = ModelLibrary.shared.usable(lastChoice.model)
         effort = lastChoice.effort
     }
 
@@ -245,6 +245,7 @@ final class FloatingPanelController {
 
     func show() {
         let isEntering = !panel.isVisible
+        Task { await ModelLibrary.shared.refresh() }
         if isEntering {
             startNewChatIfIdle()
             if model.chatID == nil { model.adoptLastChoice() }
