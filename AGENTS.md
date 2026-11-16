@@ -1,11 +1,12 @@
 # ReGlance
 
-A lightweight native macOS chat bar for Claude (⌥Space), plus a chats window. The README is the user-facing marketing page, CONTRIBUTING.md covers building, demo mode and code layout, and this file covers how to work on it.
+A lightweight native macOS chat bar (⌥Space) for Claude Code, Codex and OpenCode, plus a chats window. The README is the user-facing marketing page, CONTRIBUTING.md covers building, demo mode and code layout, and this file covers how to work on it.
 
 ## Product
 
 - **Light and fast first.** Prefer native AppKit and SwiftUI over dependencies. Drop a feature before making the app heavier.
-- **A plain chat, not a coding agent.** Claude runs as headless `claude -p` with a minimal system prompt, no skills or MCP, and only WebSearch and WebFetch. Anything that acts on the Mac waits for agent mode (GitHub issue #1).
+- **A plain chat, not a coding agent.** Each backend is a CLI the person already uses (`claude -p`, `codex app-server`, `opencode serve`), locked down to web search: Reglance's system prompt, no skills, MCP, plugins or shell, and a guard that ends the turn if another tool appears. A chat stays on the backend it started on. Anything that acts on the Mac is agent mode, which runs on Claude Code only (GitHub issues #1 and #2).
+- **The CLIs own the models.** Names, details and efforts come from each CLI's model list, cached in `Models.json`. The picker offers the newest Claude and OpenAI model of each family. Hardcoded model ids are fallbacks only (`ClaudeModel`); names come from the CLI.
 - **Hide what isn't built.** An unfinished control (dictation, the + button) stays out of the UI until it works.
 
 ## Design
@@ -38,6 +39,7 @@ Reproduce a bug with a failing test before fixing it. AppKit tests here have tra
 - **No key window.** The test runner isn't the active app, so a window can't reliably become key and synthesized keystrokes get lost in the full suite. Test the gate instead: `validateUserInterfaceItem` for menu commands, then call the action.
 - **SwiftUI probes sizes.** It measures views at several widths (some 40pt) before settling. Sizing code must measure without mutating live views (the composer once wrapped one word per line this way).
 - **Measure the real window.** A hand-built fixture can pass while the real window fails. When a fixture can't reproduce a bug, measure the actual `MainWindowController` or `FloatingPanelController` views.
+- **No real CLIs.** `.headlessWindows` swaps in a fixed `ModelLibrary`, because opening a window refreshes the models. A test that touches `ModelLibrary.shared` without that trait would start the real CLIs and write the real cache.
 - **Order-dependent tests** usually mean leftover window state; run the suite twice before trusting a fix.
 
 ## README and marketing

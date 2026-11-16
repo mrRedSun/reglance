@@ -54,7 +54,18 @@ scripts/capture-readme.sh hero picker   # only these
 
 Your terminal needs Screen Recording permission. Leave the mouse alone while it runs and turn on Do Not Disturb. To add a scene, add a case to `DemoScene.Name`, stage it in `play`, add it to the script's default list, and reference `docs/images/<scene>-light|dark` in the README.
 
-## How it talks to Claude
+## How it talks to the backends
+
+Each chat runs on one CLI backend, chosen by the model it starts with: Claude Code, Codex or OpenCode. `BackendRouter` sends every turn and title request to the chat's own backend, so a conversation never reaches another provider. Agent mode runs on Claude Code only. Codex and OpenCode can be switched off in Settings.
+
+The picker's models come from each CLI and are cached in `Models.json`; opening the bar or the chats window refreshes them at most hourly, and Check Again in Settings refreshes them at once:
+
+- Claude Code answers the stream-json `initialize` control request with its model list (the one its `/model` picker shows, including a gateway's models) and exits without contacting a model.
+- Codex answers `model/list`, OpenCode `/api/model` and `/api/provider`.
+
+The picker offers the newest Claude and OpenAI model of each family (`ModelFamily`).
+
+### Claude Code
 
 Each message goes to `claude -p --input-format stream-json` as one JSON user message on stdin: images as base64 image blocks, PDFs as document blocks, text files inlined. The system prompt is in `Sources/ChatCore/SystemPrompt.swift`. It fills in today's date and the user's region, units and currency from macOS settings. In ordinary chats, the only tools enabled are WebSearch and WebFetch.
 
@@ -72,7 +83,7 @@ Codex reads your own `~/.codex`, where its sign-in lives; Reglance never copies 
 
 Install OpenCode 2 (`brew install opencode`) and sign in to a provider with `opencode auth login`; Settings checks the version and the signed-in providers. OpenCode lists every model of every signed-in provider, so Settings has a list where you turn on the ones the picker shows.
 
-Reglance runs its own `opencode serve` (the v2 API) on 127.0.0.1, on a free port, behind a random password per launch, and stops it when Reglance quits. It starts on the first OpenCode request and restarts when the system prompt changes (the date or your preferences), never during a reply. The server reads a private config folder (`OpenCodeWorkdir/Config`), so your OpenCode MCP servers, plugins and instructions stay out while your sign-ins still work. That config defines one agent, `reglance`, with Reglance's system prompt and permissions that deny everything except web fetch and search; anything else that starts stops the reply. Each reply is its own session, forked from the previous reply's, and Stop interrupts it. Images and PDFs work when the model accepts them.
+Reglance runs its own `opencode serve` (the v2 API) on 127.0.0.1, on a free port, behind a random password per launch. It runs under a small shell holding a pipe from Reglance (`ParentGuard`), so it stops however Reglance ends, crashes and force quits included. It starts on the first OpenCode request and restarts when the system prompt changes (the date or your preferences), never during a reply. The server reads a private config folder (`OpenCodeWorkdir/Config`), so your OpenCode MCP servers, plugins and instructions stay out while your sign-ins still work. That config defines one agent, `reglance`, with Reglance's system prompt and permissions that deny everything except web fetch and search; anything else that starts stops the reply. Each reply is its own session, forked from the previous reply's, and Stop interrupts it. Images and PDFs work when the model accepts them.
 
 Rich replies (charts, HTML widgets, documents) are fenced code blocks with a custom language tag. `design/widgets.md` has the format.
 
@@ -82,12 +93,13 @@ Everything is stored under `~/Library/Application Support/Reglance/`:
 
 - `Chats/<id>.json`: one file per chat (title, timestamps, model, effort, pin/archive state, agent folder, Claude session id, messages).
 - `Chats/<id>/`: copies of that chat's attachments.
-- `ClaudeWorkdir/`: the empty working directory the `claude` subprocess runs in for ordinary chats, so no project files or `CLAUDE.md` get picked up. Agent chats run in their chosen folder.
+- `ClaudeWorkdir/`, `CodexWorkdir/`, `OpenCodeWorkdir/`: the empty folders each CLI runs in for ordinary chats, so no project files or instructions get picked up. Agent chats run in their chosen folder. `OpenCodeWorkdir/Config` is the OpenCode server's private config.
+- `Models.json`: each backend's model list, as its CLI last gave it.
 
 ## Code layout
 
-- `Sources/ChatCore`: no UI. `ClaudeClient` (subprocess, stream-json parsing, cancel), `SystemPrompt`, `ClaudeLocator`, `Chat`/`Message`, `Attachment`, `ReplyContent` (splits replies into markdown and widget blocks), `ChatStore` (JSON persistence), `ChatController` (shared observable state), `DemoMode` and `DemoContent`.
-- `Sources/Reglance`: the app. `FloatingPanel` (non-activating panel), `HotKey` (Carbon global hotkey, no Accessibility permission needed, and the saved shortcut), `PromptBarView` (the one composer both windows use), `ReplyView` (expanded panel and `MessageView`, which renders every message in both windows), `ReplyBody` (markdown, chart and document cards), `HTMLWidget` (sandboxed web view), `Attachments`, `PromptEditor` (native text and screenshot paste), `MainWindow`, `SettingsWindow` (login item, shortcut recorder, personal preferences, agent permissions and the provider doctor, whose checks live in `ChatCore/ClaudeDoctor`), `AgentMode` (agent-mode confirmations, permissions, folder picker, badge), `DemoScene` (README shots), `WindowDragRegion`, `MarkdownText`.
+- `Sources/ChatCore`: no UI. `Backend` (backends, `ChatModel`, `ModelOption`, `ModelFamily`, `ModelSymbol`, Claude's model list, `BackendRouter`), `ClaudeClient` (subprocess, stream-json parsing, cancel), `CodexBackend`/`CodexClient` (app-server and lockdown), `OpenCodeBackend`/`OpenCodeClient` (server, `ParentGuard`, SSE), `SystemPrompt`, `ClaudeLocator`, `Chat`/`Message`, `Attachment`, `ReplyContent` (splits replies into markdown and widget blocks), `ChatStore` (JSON persistence), `ChatController` (shared observable state), `DemoMode` and `DemoContent`.
+- `Sources/Reglance`: the app. `FloatingPanel` (non-activating panel), `HotKey` (Carbon global hotkey, no Accessibility permission needed, and the saved shortcut), `PromptBarView` (the one composer both windows use), `ReplyView` (expanded panel and `MessageView`, which renders every message in both windows), `ReplyBody` (markdown, chart and document cards), `HTMLWidget` (sandboxed web view), `Attachments`, `PromptEditor` (native text and screenshot paste), `MainWindow`, `SettingsWindow` (toolbar tabs: login item, shortcut recorder and personal preferences; agent permissions; providers with their switches and doctor checks, which live in `ChatCore`), `ModelLibrary` (the cached model lists, provider switches and `ModelLock`), `ModelPickerView`, `OpenCodeSettings`, `AgentMode` (agent-mode confirmations, permissions, folder picker, badge), `DemoScene` (README shots), `WindowDragRegion`, `MarkdownText`.
 - `Formula/reglance.rb`: the Homebrew formula. `scripts/build-app.sh` does the same build locally.
 - `scripts/make-icon.swift`: draws the app icon and writes `Resources/AppIcon.icns`. Rerun it after changing the drawing.
 - `scripts/capture-readme.sh`: regenerates `docs/images/`.
