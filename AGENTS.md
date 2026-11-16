@@ -17,6 +17,12 @@ A lightweight native macOS chat bar for Claude (⌥Space), plus a chats window. 
 - **Motion is springy and Apple-style**, with a shared bloom (`BloomMotion`): the floating bar opens with it on ⌥Space and the model pill grows into its picker card (one glass shape that grows and reveals the contents). Nothing jumps: the floating panel keeps one tall transparent frame and its glass grows upward inside it, so the window never resizes mid-animation.
 - **Native window behaviour over SwiftUI emulation.** The sidebar is always shown and window tabbing is off. Reach for the AppKit primitive (split view items, menu validation, responder actions) before reimplementing it.
 
+## Changing the code
+
+- **Restructure freely.** ReGlance is small, in active development, and has one user. When a feature or fix fits the current design badly, change the design: rework the UI, move, merge or split types, and rewrite whole subsystems. A change that touches the entire app is worth it if it makes the next feature simpler. This overrides the global smallest-change and stay-in-scope defaults.
+- **Tests carry the refactor.** Run `swift test` before and after. Add tests for the behaviour the old ones didn't cover, and rewrite tests that only pin down the old structure.
+- **Name the restructuring in your summary** (what moved, what was replaced) so the user knows what changed beyond the feature.
+
 ## Working with the user
 
 - **The user is the visual tester.** Make the change, run `swift test`, rebuild with `scripts/build-app.sh --open`, and say what to look at. They judge how it looks and feels. Screenshots, screen recordings, and offscreen renders are out: they cost tokens and once captured private windows.
