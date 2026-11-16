@@ -188,7 +188,10 @@ let turnCompleted = #"{"jsonrpc":"2.0","method":"turn/completed","params":{"thre
     for name in ["pencil", "\"my server\"", "node_repl"] {
         #expect(args.contains("mcp_servers.\(name).enabled=false"))
     }
-    for feature in ["shell_tool", "apps", "plugins", "browser_use", "in_app_browser", "computer_use"] {
+    // Every default-on feature that adds a tool or runs code, as `codex features list` shows.
+    for feature in ["shell_tool", "hooks", "apps", "plugins", "skill_search", "tool_suggest",
+                    "multi_agent", "goals", "image_generation", "view_image", "sleep_tool",
+                    "browser_use", "in_app_browser", "computer_use"] {
         #expect(args.contains(feature) && args[args.firstIndex(of: feature)! - 1] == "--disable")
     }
     #expect(args.suffix(2) == ["-c", "tools.web_search=true"])

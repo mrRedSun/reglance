@@ -5,11 +5,14 @@ import Foundation
 /// everything there that could act on the Mac is switched off at launch, and anything that
 /// still slips through ends the turn (`CodexClient.allowedItemTypes`).
 enum CodexLockdown {
-    /// Features that add tools beyond web search: the shell, apps and plugins (MCP),
-    /// the browser and computer use, and memories.
+    /// Features that add tools beyond web search or run code: the shell and hooks, apps,
+    /// plugins and skills (MCP), sub-agents and goals, image tools, sleep, the browser and
+    /// computer use, and memories. Codex turns most of them on by default. `unified_exec`
+    /// isn't listed: Codex ignores disabling it, and with `shell_tool` off no exec tool exists.
     static let disabledFeatures = [
-        "shell_tool", "apps", "plugins", "browser_use", "browser_use_external",
-        "in_app_browser", "computer_use", "memories",
+        "shell_tool", "hooks", "apps", "plugins", "skill_search", "tool_suggest",
+        "multi_agent", "goals", "image_generation", "view_image", "sleep_tool",
+        "browser_use", "browser_use_external", "in_app_browser", "computer_use", "memories",
     ]
 
     /// `codex app-server` arguments: each MCP server from the config disabled by name
