@@ -92,9 +92,8 @@ final class PromptScrollView: NSScrollView {
         super.init(frame: frameRect)
         drawsBackground = false
         borderType = .noBorder
-        hasVerticalScroller = true
-        autohidesScrollers = true
-        scrollerStyle = .overlay
+        // Long prompts still scroll (trackpad, caret); there's just no scroller drawn over the glass.
+        hasVerticalScroller = false
         documentView = editor
         editor.minSize = NSSize(width: 0, height: 30)
         editor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
