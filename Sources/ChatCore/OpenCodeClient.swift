@@ -1,12 +1,44 @@
 import Foundation
 
-/// The process id of the running `opencode serve`, so it is stopped when Reglance exits.
-private nonisolated(unsafe) var openCodeServerPID: pid_t = 0
-private let stopServerAtExit: Void = {
-    atexit {
-        if openCodeServerPID > 0 { kill(openCodeServerPID, SIGTERM) }
+/// Runs a long-lived child that must not outlive Reglance, however Reglance ends: quit,
+/// `kill`, force quit or a crash. macOS has no "die with my parent" flag, so a small shell
+/// sits between them holding a pipe from Reglance. The kernel closes Reglance's end when
+/// it exits; the shell then reads end-of-file and stops the child. The shell also exits
+/// when the child does, so `process.isRunning` says whether the child is up.
+struct ParentGuard {
+    let process: Process
+    private let lifeline: FileHandle
+
+    static let script = """
+        exec 3<&0 </dev/null
+        "$@" 3<&- &
+        child=$!
+        { read -r _ <&3; kill -TERM "$child" 2>/dev/null; } &
+        watcher=$!
+        exec 3<&-
+        wait "$child"; status=$?
+        kill "$watcher" 2>/dev/null
+        exit $status
+        """
+
+    /// Starts `executable` under the guard. `configure` sets its directory, environment and
+    /// output, which the child inherits from the shell.
+    static func launch(_ executable: URL, arguments: [String], configure: (Process) -> Void) throws -> ParentGuard {
+        let process = Process()
+        process.executableURL = URL(filePath: "/bin/sh")
+        process.arguments = ["-c", script, "reglance-guard", executable.path] + arguments
+        configure(process)
+        let lifeline = Pipe()
+        process.standardInput = lifeline
+        try process.run()
+        return ParentGuard(process: process, lifeline: lifeline.fileHandleForWriting)
     }
-}()
+
+    /// Stops the child now, the same way Reglance exiting does.
+    func release() {
+        try? lifeline.close()
+    }
+}
 
 /// Reglance's own `opencode serve` (OpenCode 2's v2 API), shared by every OpenCode chat.
 ///
@@ -65,7 +97,8 @@ public actor OpenCodeServer {
         return environment
     }
 
-    private var process: Process?
+    /// `opencode serve`, stopped whenever Reglance ends (`ParentGuard`).
+    private var server: ParentGuard?
     private var connection: Connection?
     private var systemPrompt: String?
     private var activeTurns = 0
@@ -75,7 +108,7 @@ public actor OpenCodeServer {
     /// models) accepts whatever prompt a running server has.
     public func connect(executable: URL, systemPrompt: String? = nil) async throws -> Connection {
         if let starting { return try await starting.value }
-        if let connection, process?.isRunning == true,
+        if let connection, server?.process.isRunning == true,
            systemPrompt == nil || systemPrompt == self.systemPrompt || activeTurns > 0 {
             return connection
         }
@@ -97,25 +130,20 @@ public actor OpenCodeServer {
 
     private func start(executable: URL, systemPrompt: String) async throws -> Connection {
         stop()
-        _ = stopServerAtExit
         let workdir = AppPaths.workdir(for: .opencode)
         let configHome = workdir.appending(path: "Config", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: configHome, withIntermediateDirectories: true)
         let password = (0..<2).map { _ in UUID().uuidString }.joined().replacingOccurrences(of: "-", with: "")
 
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = ["serve", "--hostname", "127.0.0.1", "--port", "0"]
-        process.currentDirectoryURL = workdir
-        process.environment = Self.environment(inherited: ProcessInfo.processInfo.environment, executable: executable,
-                                               configHome: configHome, systemPrompt: systemPrompt, password: password)
         let output = Pipe()
-        process.standardOutput = output
-        process.standardError = output
-        process.standardInput = FileHandle.nullDevice
-        try process.run()
-        self.process = process
-        openCodeServerPID = process.processIdentifier
+        let server = try ParentGuard.launch(executable, arguments: ["serve", "--hostname", "127.0.0.1", "--port", "0"]) { process in
+            process.currentDirectoryURL = workdir
+            process.environment = Self.environment(inherited: ProcessInfo.processInfo.environment, executable: executable,
+                                                   configHome: configHome, systemPrompt: systemPrompt, password: password)
+            process.standardOutput = output
+            process.standardError = output
+        }
+        self.server = server
 
         // The first line names the URL; the rest is drained so the pipe never fills.
         let (urls, urlContinuation) = AsyncStream.makeStream(of: URL.self)
@@ -164,10 +192,9 @@ public actor OpenCodeServer {
     }
 
     private func stop() {
-        if let process, process.isRunning { process.terminate() }
-        process = nil
+        server?.release()
+        server = nil
         connection = nil
-        openCodeServerPID = 0
     }
 
     /// The server's address and password.

@@ -196,3 +196,40 @@ private func consume(_ events: [[String: Any]], into parser: inout OpenCodeStrea
     let missing = await OpenCodeDoctor.run(executable: nil)
     #expect(missing.checks.map(\.status) == [.warning])
 }
+
+/// The pid of the guard shell's `sleep` child, or nil before it starts.
+private func childPID(of parent: pid_t) throws -> pid_t? {
+    let pgrep = Process()
+    pgrep.executableURL = URL(filePath: "/usr/bin/pgrep")
+    pgrep.arguments = ["-P", String(parent), "sleep"]
+    let out = Pipe()
+    pgrep.standardOutput = out
+    try pgrep.run()
+    let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    pgrep.waitUntilExit()
+    return text.split(whereSeparator: \.isNewline).first.flatMap { pid_t(String($0)) }
+}
+
+private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
+    for _ in 0..<100 where !condition() { try await Task.sleep(for: .milliseconds(50)) }
+    return condition()
+}
+
+@Test func theServerStopsWhenReglanceGoesAway() async throws {
+    // Reglance dying closes its end of the guard's pipe, exactly like closing it here.
+    let guarded = try ParentGuard.launch(URL(filePath: "/bin/sleep"), arguments: ["60"], configure: { _ in })
+    var server: pid_t?
+    #expect(try await waitUntil { server = try? childPID(of: guarded.process.processIdentifier); return server != nil })
+    let pid = try #require(server)
+    #expect(kill(pid, 0) == 0)
+    guarded.release()
+    #expect(try await waitUntil { kill(pid, 0) != 0 })
+    #expect(try await waitUntil { !guarded.process.isRunning })
+}
+
+@Test func theGuardExitsWhenTheServerDoes() async throws {
+    let guarded = try ParentGuard.launch(URL(filePath: "/bin/sleep"), arguments: ["0.2"], configure: { _ in })
+    defer { guarded.release() }
+    // So `isRunning` tells whether the server is still up.
+    #expect(try await waitUntil { !guarded.process.isRunning })
+}
