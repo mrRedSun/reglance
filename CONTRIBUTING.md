@@ -83,6 +83,12 @@ Install Codex (`brew install --cask codex`) and run `codex` once to sign in; Set
 
 Codex reads your own `~/.codex`, where its sign-in lives; Reglance never copies credentials. To keep a chat to web search, it disables every MCP server named in your `config.toml` and the shell, apps, plugins, browser, computer-use and memories features, and runs each thread read-only with approvals off. If Codex still starts an MCP server or anything but a web search, the reply stops with an error. Your global `~/.codex/AGENTS.md` is still loaded, because Codex has no setting to skip it, and Codex chats appear in your Codex history. PDFs aren't supported.
 
+### OpenCode
+
+Install OpenCode 2 (`brew install opencode`) and sign in to a provider with `opencode auth login`; Settings checks the version and the signed-in providers. OpenCode lists every model of every signed-in provider, so Settings has a list where you turn on the ones the picker shows.
+
+Reglance runs its own `opencode serve` (the v2 API) on 127.0.0.1, on a free port, behind a random password per launch, and stops it when Reglance quits. It starts on the first OpenCode request and restarts when the system prompt changes (the date or your preferences), never during a reply. The server reads a private config folder (`OpenCodeWorkdir/Config`), so your OpenCode MCP servers, plugins and instructions stay out while your sign-ins still work. That config defines one agent, `reglance`, with Reglance's system prompt and permissions that deny everything except web fetch and search; anything else that starts stops the reply. Each reply is its own session, forked from the previous reply's, and Stop interrupts it. Images and PDFs work when the model accepts them.
+
 Rich replies (charts, HTML widgets, documents) are fenced code blocks with a custom language tag. `design/widgets.md` has the format.
 
 ## Where things live
