@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # macOS 26 on Apple silicon, with Xcode 26 by default.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - run: swift build -Xswiftc -warnings-as-errors
+      - run: swift test
