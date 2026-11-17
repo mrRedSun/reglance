@@ -11,7 +11,7 @@ class Reglance < Formula
 
   def install
     system "swift", "build", "--disable-sandbox", "--configuration", "release", "--product", "Reglance"
-    app = prefix/"Reglance.app"
+    app = prefix/"ReGlance.app"
     (app/"Contents/MacOS").install ".build/release/Reglance"
     (app/"Contents").install "Resources/Info.plist"
     (app/"Contents/Resources").install "Resources/AppIcon.icns"
@@ -20,21 +20,21 @@ class Reglance < Formula
 
   def caveats
     <<~EOS
-      Reglance talks to Claude through the Claude Code CLI. Install it and log in once:
+      ReGlance talks to Claude through the Claude Code CLI. Install it and log in once:
         https://code.claude.com/docs/en/setup
         claude
 
-      Add Reglance to Applications (once; the link survives upgrades):
-        ln -sf "#{opt_prefix}/Reglance.app" /Applications/Reglance.app
+      Add ReGlance to Applications (once; the link survives upgrades):
+        ln -sf "#{opt_prefix}/ReGlance.app" /Applications/ReGlance.app
       Or open it directly:
-        open "#{opt_prefix}/Reglance.app"
+        open "#{opt_prefix}/ReGlance.app"
 
       Press Option-Space to show the chat bar.
     EOS
   end
 
   test do
-    app = prefix/"Reglance.app"
+    app = prefix/"ReGlance.app"
     assert_predicate app/"Contents/MacOS/Reglance", :executable?
     system "codesign", "--verify", "--strict", app
   end
