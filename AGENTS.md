@@ -1,6 +1,6 @@
 # ReGlance
 
-A lightweight native macOS chat bar (⌥Space) for Claude Code, Codex and OpenCode, plus a chats window. The README is the user-facing marketing page, CONTRIBUTING.md covers building, demo mode and code layout, and this file covers how to work on it.
+A lightweight native macOS chat bar (⌥Space) for Claude Code, Codex and OpenCode, plus a chats window. The README is the user-facing marketing page, CONTRIBUTING.md covers building, demo mode and code layout, and this file covers how to work on it. GLOSSARY.md names the project's concepts; use its terms.
 
 ## Product
 
