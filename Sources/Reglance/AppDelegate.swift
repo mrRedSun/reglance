@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func makeStatusItem() -> NSStatusItem {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "bubble.left.and.text.bubble.right", accessibilityDescription: "ReGlance")
+        item.button?.image = StatusIcon.make()
         let menu = NSMenu()
         let show = menu.addItem(withTitle: "Show Prompt Bar", action: #selector(showPanel), keyEquivalent: "")
         show.target = self
