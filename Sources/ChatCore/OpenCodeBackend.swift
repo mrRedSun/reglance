@@ -3,7 +3,14 @@ import Foundation
 /// The `opencode` CLI (version 2 or later) as a chat backend, through its v2 HTTP API
 /// (see `OpenCodeClient`). The picker offers only the models the person turned on in
 /// Settings (`enabledModelsKey`), out of everything their signed-in providers have.
-public enum OpenCodeBackend {
+public enum OpenCodeBackend: BackendDescriptor {
+    public static let displayName = "OpenCode"
+    public static let workdirName = "OpenCodeWorkdir"
+    public static let notFoundMessage =
+        "Couldn't find the opencode CLI. Install OpenCode and run `opencode auth login` in a terminal to sign in."
+
+    public static func makeClient() -> any ChatStreamingClient { OpenCodeClient() }
+
     public static func executableURL() -> URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return CLILocator.executableURL(named: "opencode", candidates: [

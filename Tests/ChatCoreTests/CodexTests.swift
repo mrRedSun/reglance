@@ -34,6 +34,7 @@ private func json(_ line: String) throws -> [String: Any] {
 
 // MARK: - Notification-to-event mapping
 
+@discardableResult
 private func consume(_ lines: [String], into parser: inout CodexStreamParser) -> [ChatEvent] {
     lines.compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
         .flatMap { parser.consume($0) }
@@ -54,7 +55,7 @@ let turnCompleted = #"{"jsonrpc":"2.0","method":"turn/completed","params":{"thre
     #expect(parser.text == "Basenji")
     #expect(parser.isFinished)
     #expect(parser.errorMessage == nil)
-    #expect(events.last == .finished(sessionID: "th1", fullText: "Basenji"))
+    #expect(events.last == .finished(sessionID: "th1"))
 }
 
 @Test func separatesTwoAgentMessagesWithABlankLine() {

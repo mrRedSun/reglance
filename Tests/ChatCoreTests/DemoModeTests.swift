@@ -17,8 +17,8 @@ import Testing
 }
 
 @Test func demoSeedWritesMadeUpChatsOnce() throws {
-    let store = ChatStore(directory: FileManager.default.temporaryDirectory.appending(path: "reglance-demo-tests-\(UUID().uuidString)"))
-    defer { try? FileManager.default.removeItem(at: store.directory) }
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
     try DemoMode.seed(store)
     let chats = store.loadAll()
     #expect(chats.count == DemoContent.chats(now: Date()).count)
@@ -30,10 +30,9 @@ import Testing
 }
 
 @MainActor @Test func demoClientStreamsTheCannedReply() async throws {
-    let controller = ChatController(
-        store: ChatStore(directory: FileManager.default.temporaryDirectory.appending(path: "reglance-demo-tests-\(UUID().uuidString)")),
-        client: DemoClient(wordDelay: .zero)
-    )
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
+    let controller = ChatController(store: store, client: DemoClient(wordDelay: .zero))
     let id = controller.send(DemoContent.heroQuestion, model: .sonnet, to: nil)
     await controller.waitForReply(id)
     await controller.waitForTitle(id)

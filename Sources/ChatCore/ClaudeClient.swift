@@ -1,63 +1,5 @@
 import Foundation
 
-public enum ChatEvent: Equatable, Sendable {
-    /// Session id from the CLI's init event; pass it back as `resume` for follow-ups.
-    case session(id: String)
-    /// A streamed chunk of the reply.
-    case text(String)
-    /// A streamed chunk of extended thinking (models that think, e.g. Opus).
-    case thinking(String)
-    /// Claude started using a tool: `WebSearch` (detail = query) or `WebFetch` (detail = URL).
-    case tool(name: String, detail: String)
-    /// Token usage of the turn so far; a later report replaces an earlier one.
-    case usage(TokenUsage)
-    /// The reply is complete.
-    case finished(sessionID: String?, fullText: String)
-}
-
-/// A piece of a user message: maps to an Anthropic API content block.
-public enum ContentBlock: Equatable, Sendable {
-    case text(String)
-    case image(mediaType: String, data: Data)
-    case document(mediaType: String, data: Data, title: String)
-}
-
-public enum ChatError: LocalizedError, Equatable, Sendable {
-    case cliNotFound(Backend)
-    case failed(String)
-
-    public var errorDescription: String? {
-        switch self {
-        case .cliNotFound(.claude):
-            "Couldn't find the claude CLI. Install Claude Code and run `claude` once in a terminal to log in."
-        case .cliNotFound(.codex):
-            "Couldn't find the codex CLI. Install Codex and run `codex` once in a terminal to sign in."
-        case .cliNotFound(.opencode):
-            "Couldn't find the opencode CLI. Install OpenCode and run `opencode auth login` in a terminal to sign in."
-        case .failed(let message):
-            message
-        }
-    }
-}
-
-/// Streaming boundary used by the controller, one per backend (see `BackendRouter`), also
-/// allowing tests without CLI subprocesses.
-public protocol ChatStreamingClient: Sendable {
-    /// `agentDirectory` is nil for an ordinary chat; otherwise the turn runs as an agent in
-    /// that folder, approving actions with `permissions`. `resume` is the session id from the
-    /// reply before this turn; the stream reports the new turn's own session id, so earlier
-    /// ids stay resumable for regenerate.
-    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
-              agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error>
-    /// A short title for a new chat, or nil if none could be made. Runs on the chat's own
-    /// backend; `model` is the chat's model.
-    func title(question: String, answer: String, model: ChatModel) async -> String?
-}
-
-public extension ChatStreamingClient {
-    func title(question: String, answer: String, model: ChatModel) async -> String? { nil }
-}
-
 /// Runs one `claude -p` subprocess per message and streams the reply.
 /// In a chat, user settings, MCP servers and slash commands are disabled, and the only
 /// tools are web search and web fetch, so the CLI behaves as a chat model that can read
@@ -73,7 +15,7 @@ public struct ClaudeClient: ChatStreamingClient {
     /// the next one.
     public let preferences: @Sendable () -> String
 
-    public init(workingDirectory: URL = AppPaths.claudeWorkdir,
+    public init(workingDirectory: URL = AppPaths.workdir(for: .claude),
                 preferences: @escaping @Sendable () -> String = {
                     UserDefaults.standard.string(forKey: SystemPrompt.preferencesKey) ?? ""
                 }) {
@@ -132,16 +74,8 @@ public struct ClaudeClient: ChatStreamingClient {
         "--output-format", "text",
     ]
 
-    /// Trims a model reply to one plain line, or nil when it's empty.
-    public static func cleanTitle(_ output: String) -> String? {
-        let line = output.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        let title = line.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\"'“”‘’.#*")))
-        guard !title.isEmpty else { return nil }
-        return title.count > 60 ? String(title.prefix(60)) + "…" : title
-    }
-
     public func title(question: String, answer: String, model: ChatModel) async -> String? {
-        let prompt = "Question:\n\(question.prefix(1500))\n\nStart of the answer:\n\(answer.prefix(1500))"
+        let prompt = ChatTitle.prompt(question: question, answer: answer)
         return await Task.detached {
             guard let executable = ClaudeLocator.executableURL() else { return nil }
             try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
@@ -152,13 +86,13 @@ public struct ClaudeClient: ChatStreamingClient {
             process.standardOutput = stdout
             process.standardError = FileHandle.nullDevice
             do { try process.run() } catch { return nil }
-            _ = Self.ignoreBrokenPipe
+            _ = Subprocess.ignoreBrokenPipe
             try? stdin.fileHandleForWriting.write(contentsOf: Data(prompt.utf8))
             try? stdin.fileHandleForWriting.close()
-            let output = await Self.readAll(stdout.fileHandleForReading)
+            let output = await Subprocess.readAll(stdout.fileHandleForReading)
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
-            return Self.cleanTitle(output)
+            return ChatTitle.clean(output)
         }.value
     }
 
@@ -178,10 +112,8 @@ public struct ClaudeClient: ChatStreamingClient {
     /// ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN), so the child gets it as variables.
     static func childEnvironment(inherited: [String: String], settingsEnvironment: [String: String],
                                  executable: URL) -> [String: String] {
-        var environment = inherited.merging(settingsEnvironment) { _, setting in setting }
-        let extraPath = [executable.deletingLastPathComponent().path, "/opt/homebrew/bin", "/usr/local/bin"]
-        environment["PATH"] = (extraPath + [environment["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
-        return environment
+        Subprocess.environment(inherited: inherited.merging(settingsEnvironment) { _, setting in setting },
+                               executable: executable)
     }
 
     /// The string values of the `env` block in a Claude Code settings file; empty when the
@@ -223,17 +155,9 @@ public struct ClaudeClient: ChatStreamingClient {
     /// Cancelling the consuming task (or dropping the stream) terminates the subprocess.
     public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort = .automatic, resume sessionID: String?,
                      agentDirectory: URL? = nil, permissions: AgentPermissions = .auto) -> AsyncThrowingStream<ChatEvent, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task.detached {
-                do {
-                    try await run(content: content, model: model, effort: effort, resume: sessionID,
-                                  agentDirectory: agentDirectory, permissions: permissions, continuation: continuation)
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        .turn { continuation in
+            try await run(content: content, model: model, effort: effort, resume: sessionID,
+                          agentDirectory: agentDirectory, permissions: permissions, continuation: continuation)
         }
     }
 
@@ -266,7 +190,7 @@ public struct ClaudeClient: ChatStreamingClient {
 
         // Write on another thread: a large image can exceed the pipe buffer, and the CLI
         // starts writing to stdout before it has read all of stdin. EOF ends the turn.
-        _ = Self.ignoreBrokenPipe
+        _ = Subprocess.ignoreBrokenPipe
         let line = Self.userMessageLine(content)
         let input = stdin.fileHandleForWriting
         Thread.detachNewThread {
@@ -276,70 +200,27 @@ public struct ClaudeClient: ChatStreamingClient {
 
         let handle = ProcessHandle(process)
         try await withTaskCancellationHandler {
-            async let errorOutput = Self.readAll(stderr.fileHandleForReading)
+            async let errorOutput = Subprocess.readAll(stderr.fileHandleForReading)
             var parser = StreamParser()
-            var buffer = Data()
-            for await chunk in Self.chunks(of: stdout.fileHandleForReading) {
-                buffer.append(chunk)
-                while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
-                    let line = String(decoding: buffer[..<newline], as: UTF8.self)
-                    buffer.removeSubrange(...newline)
-                    for event in parser.consume(line) { continuation.yield(event) }
-                }
+            for await line in Subprocess.lines(of: stdout.fileHandleForReading) {
+                try parser.turn.deliver(parser.consume(String(decoding: line, as: UTF8.self)), to: continuation)
             }
-            let stderrText = await errorOutput
+            let detail = await errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
             process.waitUntilExit()
-            try Task.checkCancellation()
-
-            if let message = parser.errorMessage { throw ChatError.failed(message) }
-            if !parser.isFinished {
-                let detail = stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
-                throw ChatError.failed(detail.isEmpty ? "claude exited with status \(process.terminationStatus)" : detail)
-            }
+            try parser.turn.finish(orElse: detail.isEmpty ? "claude exited with status \(process.terminationStatus)" : detail)
         } onCancel: {
             handle.terminate()
         }
     }
-
-    /// Writing to a pipe whose reader exited (claude quit early or was cancelled) raises
-    /// SIGPIPE, which would kill the app. Ignored, the write then just fails.
-    static let ignoreBrokenPipe: Void = { signal(SIGPIPE, SIG_IGN) }()
-
-    /// Pipe data as soon as it's written. (`FileHandle.bytes` buffers, which delays streaming.)
-    static func chunks(of handle: FileHandle) -> AsyncStream<Data> {
-        AsyncStream { continuation in
-            handle.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    handle.readabilityHandler = nil
-                    continuation.finish()
-                } else {
-                    continuation.yield(data)
-                }
-            }
-        }
-    }
-
-    static func readAll(_ handle: FileHandle) async -> String {
-        var data = Data()
-        do { for try await byte in handle.bytes { data.append(byte) } } catch {}
-        return String(decoding: data, as: UTF8.self)
-    }
-}
-
-/// `Process` isn't Sendable; this only exposes `terminate()`, which is safe from any thread.
-final class ProcessHandle: @unchecked Sendable {
-    private let process: Process
-    init(_ process: Process) { self.process = process }
-    func terminate() { if process.isRunning { process.terminate() } }
 }
 
 /// Turns `--output-format stream-json` lines into `ChatEvent`s.
 public struct StreamParser: Sendable {
     public private(set) var sessionID: String?
-    public private(set) var text = ""
-    public private(set) var isFinished = false
-    public private(set) var errorMessage: String?
+    private(set) var turn = TurnState()
+    public var text: String { turn.text }
+    public var isFinished: Bool { turn.isFinished }
+    public var errorMessage: String? { turn.errorMessage }
     /// Tokens in the latest model call: its prompt (cached or not) plus its output.
     private var lastCallContext: Int?
 
@@ -409,19 +290,14 @@ public struct StreamParser: Sendable {
             }
             // A new text block after a tool call starts a new paragraph.
             if event["type"] as? String == "content_block_start",
-               (event["content_block"] as? [String: Any])?["type"] as? String == "text",
-               !text.isEmpty, !text.hasSuffix("\n\n") {
-                let separator = text.hasSuffix("\n") ? "\n" : "\n\n"
-                text += separator
-                return [.text(separator)]
+               (event["content_block"] as? [String: Any])?["type"] as? String == "text" {
+                return turn.startParagraph()
             }
             guard event["type"] as? String == "content_block_delta",
                   let delta = event["delta"] as? [String: Any] else { return [] }
             switch delta["type"] as? String {
             case "text_delta":
-                guard let chunk = delta["text"] as? String else { return [] }
-                text += chunk
-                return [.text(chunk)]
+                return turn.append(delta["text"] as? String ?? "")
             case "thinking_delta":
                 // The CLI currently sends empty thinking text (progress updates only).
                 guard let chunk = delta["thinking"] as? String, !chunk.isEmpty else { return [] }
@@ -431,22 +307,19 @@ public struct StreamParser: Sendable {
             }
 
         case "result":
-            isFinished = true
+            turn.isFinished = true
             let id = object["session_id"] as? String ?? sessionID
             sessionID = id
             let result = object["result"] as? String ?? ""
             if object["is_error"] as? Bool == true {
-                errorMessage = result.isEmpty ? "claude returned an error (\(object["subtype"] as? String ?? "unknown"))" : result
+                turn.errorMessage = result.isEmpty ? "claude returned an error (\(object["subtype"] as? String ?? "unknown"))" : result
                 return []
             }
             var events: [ChatEvent] = []
             if let usage = usage(fromResult: object) { events.append(.usage(usage)) }
             // No partial messages arrived (e.g. an older CLI): emit the whole reply at once.
-            if text.isEmpty, !result.isEmpty {
-                text = result
-                events.append(.text(result))
-            }
-            events.append(.finished(sessionID: id, fullText: text))
+            if text.isEmpty { events += turn.append(result) }
+            events.append(.finished(sessionID: id))
             return events
 
         default:

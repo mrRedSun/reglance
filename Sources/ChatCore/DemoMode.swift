@@ -63,7 +63,7 @@ public struct DemoClient: ChatStreamingClient {
                 }
                 guard !Task.isCancelled else { return continuation.finish() }
                 if !chunk.isEmpty { continuation.yield(.text(chunk)) }
-                continuation.yield(.finished(sessionID: session, fullText: reply.text))
+                continuation.yield(.finished(sessionID: session))
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }

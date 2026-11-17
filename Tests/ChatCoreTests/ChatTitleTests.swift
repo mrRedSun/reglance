@@ -2,28 +2,14 @@ import Foundation
 import Testing
 @testable import ChatCore
 
-private struct TitlingClient: ChatStreamingClient {
-    let title: String?
-
-    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(.text("Basenjis yodel instead of barking."))
-            continuation.yield(.finished(sessionID: "title-session", fullText: "Basenjis yodel instead of barking."))
-            continuation.finish()
-        }
-    }
-
-    func title(question: String, answer: String, model: ChatModel) async -> String? { title }
-}
-
-private func titleStore() -> ChatStore {
-    ChatStore(directory: FileManager.default.temporaryDirectory.appending(path: "reglance-title-tests-\(UUID().uuidString)"))
+private func titling(_ title: String?) -> ScriptedClient {
+    ScriptedClient(replying: "Basenjis yodel instead of barking.", session: "title-session") { _, _, _ in title }
 }
 
 @MainActor @Test func firstReplyReplacesTheFirstMessageTitle() async throws {
-    let store = titleStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
-    let controller = ChatController(store: store, client: TitlingClient(title: "Dogs that can't bark"))
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
+    let controller = ChatController(store: store, client: titling("Dogs that can't bark"))
     let id = controller.send("which dogs cannot bark", model: .sonnet, to: nil)
     await controller.waitForReply(id)
     await controller.waitForTitle(id)
@@ -31,7 +17,7 @@ private func titleStore() -> ChatStore {
     #expect(store.loadAll().first?.title == "Dogs that can't bark", "The generated title is saved")
 
     // Follow-ups keep the title.
-    let followUp = ChatController(store: store, client: TitlingClient(title: "Something else"))
+    let followUp = ChatController(store: store, client: titling("Something else"))
     followUp.send("and cats?", model: .sonnet, to: id)
     await followUp.waitForReply(id)
     await followUp.waitForTitle(id)
@@ -39,9 +25,9 @@ private func titleStore() -> ChatStore {
 }
 
 @MainActor @Test func renamedChatsKeepTheirName() async throws {
-    let store = titleStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
-    let controller = ChatController(store: store, client: TitlingClient(title: "Generated"))
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
+    let controller = ChatController(store: store, client: titling("Generated"))
     let id = controller.send("question", model: .sonnet, to: nil)
     controller.rename(id, to: "Mine")
     await controller.waitForReply(id)
@@ -50,9 +36,9 @@ private func titleStore() -> ChatStore {
 }
 
 @MainActor @Test func aFailedTitleKeepsTheFirstMessage() async throws {
-    let store = titleStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
-    let controller = ChatController(store: store, client: TitlingClient(title: nil))
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
+    let controller = ChatController(store: store, client: titling(nil))
     let id = controller.send("which dogs cannot bark", model: .sonnet, to: nil)
     await controller.waitForReply(id)
     await controller.waitForTitle(id)
@@ -67,9 +53,9 @@ private func titleStore() -> ChatStore {
 }
 
 @Test func titleOutputIsCleanedToOneLine() {
-    #expect(ClaudeClient.cleanTitle("\"Dogs that can't bark.\"\n") == "Dogs that can't bark")
-    #expect(ClaudeClient.cleanTitle("  \n") == nil)
-    #expect(ClaudeClient.cleanTitle(String(repeating: "a", count: 80))?.count == 61)
+    #expect(ChatTitle.clean("\"Dogs that can't bark.\"\n") == "Dogs that can't bark")
+    #expect(ChatTitle.clean("  \n") == nil)
+    #expect(ChatTitle.clean(String(repeating: "a", count: 80))?.count == 61)
 }
 
 @Test func legacyChatsDontGetRetitled() throws {
@@ -79,4 +65,15 @@ private func titleStore() -> ChatStore {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
     #expect(try decoder.decode(Chat.self, from: data).titleIsAutomatic == false)
+}
+
+@MainActor @Test func aFinishedTitleRequestIsForgottenHoweverItEnded() async throws {
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
+    let controller = ChatController(store: store, client: titling(nil))
+    let id = controller.send("which dogs cannot bark", model: .sonnet, to: nil)
+    await controller.waitForReply(id)
+    await controller.waitForTitle(id)
+    for _ in 0..<10 { await Task.yield() }
+    #expect(controller.pendingTitleCount == 0)
 }

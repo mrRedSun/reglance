@@ -1,7 +1,14 @@
 import Foundation
 
 /// The `codex` CLI as a chat backend, through `codex app-server` (see `CodexClient`).
-public enum CodexBackend {
+public enum CodexBackend: BackendDescriptor {
+    public static let displayName = "Codex"
+    public static let workdirName = "CodexWorkdir"
+    public static let notFoundMessage =
+        "Couldn't find the codex CLI. Install Codex and run `codex` once in a terminal to sign in."
+
+    public static func makeClient() -> any ChatStreamingClient { CodexClient() }
+
     public static func executableURL() -> URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return CLILocator.executableURL(named: "codex", candidates: [
