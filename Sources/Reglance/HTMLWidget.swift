@@ -15,10 +15,7 @@ struct HTMLCard: View {
     var body: some View {
         let title = Self.title(of: source)
         WidgetCard(kind: "HTML", title: title) {
-            HeaderButton(systemName: "doc.on.doc", help: "Copy source", size: 24) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(source, forType: .string)
-            }
+            CopyButton(help: "Copy source") { [source as NSString] }
             HeaderButton(systemName: "arrow.up.left.and.arrow.down.right", help: "Open large", size: 24) {
                 Task { await HTMLWindow.open(source: source, title: title) }
             }
