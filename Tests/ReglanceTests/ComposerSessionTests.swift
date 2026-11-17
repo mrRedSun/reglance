@@ -69,9 +69,9 @@ struct ComposerSessionTests {
         let composer = makeComposer(chats: chats)
         composer.text = "Hello"
         composer.send()
-        let id = try? #require(composer.chatID)
         #expect(composer.text.isEmpty)
-        await chats.waitForReply(id ?? UUID())
+        guard let id = composer.chatID else { Issue.record("Sending should start a chat"); return }
+        await chats.waitForReply(id)
         #expect(chats.chat(id)?.messages.first?.text == "Hello")
     }
 

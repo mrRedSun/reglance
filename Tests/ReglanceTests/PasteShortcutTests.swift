@@ -40,9 +40,7 @@ struct PasteShortcutTests {
 
     @Test func pasteIsEnabledForImagesInTheFloatingPanel() async throws {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "paste-key-test-\(UUID())")
-        let controller = FloatingPanelController(chats: makeChats(),
-                                                 openInWindow: { _ in })
+        let controller = FloatingPanelController(chats: makeChats(), openInWindow: { _ in })
         controller.show()
         defer { controller.hide() }
         try await Task.sleep(for: .milliseconds(150))
