@@ -92,7 +92,7 @@ public enum ClaudeDoctor {
     /// output and a time limit so a stuck command can't hang Settings.
     public static let defaultRunner: Runner = { executable, arguments in
         await Task.detached {
-            let directory = AppPaths.claudeWorkdir
+            let directory = AppPaths.workdir(for: .claude)
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let process = ClaudeClient.process(executable: executable, arguments: arguments, workingDirectory: directory)
             let output = Pipe()

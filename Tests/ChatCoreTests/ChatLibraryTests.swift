@@ -2,18 +2,6 @@ import Foundation
 import Testing
 @testable import ChatCore
 
-private func libraryStore() -> ChatStore {
-    ChatStore(directory: FileManager.default.temporaryDirectory.appending(path: "reglance-library-tests-\(UUID().uuidString)"))
-}
-
-private struct TestClaudeClient: ChatStreamingClient {
-    let stream: AsyncThrowingStream<ChatEvent, Error>
-
-    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
-        stream
-    }
-}
-
 @Test func legacyChatMetadataDefaults() throws {
     let id = UUID()
     let data = Data("""
@@ -29,8 +17,8 @@ private struct TestClaudeClient: ChatStreamingClient {
 }
 
 @Test func chatMetadataRoundTrip() throws {
-    let store = libraryStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
     var chat = Chat(firstMessage: "Metadata", model: .opus, effort: .xhigh)
     chat.isPinned = true
     chat.isArchived = true
@@ -58,8 +46,8 @@ private struct TestClaudeClient: ChatStreamingClient {
 }
 
 @MainActor @Test func libraryOperationsPersistAndSort() throws {
-    let store = libraryStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
     var older = Chat(firstMessage: "Older", model: .sonnet)
     older.updatedAt = Date(timeIntervalSince1970: 100)
     var newer = Chat(firstMessage: "Newer", model: .haiku)
@@ -91,8 +79,8 @@ private struct TestClaudeClient: ChatStreamingClient {
 }
 
 @Test func deletionRemovesOnlySelectedChatFiles() throws {
-    let store = libraryStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
     let selected = Chat(firstMessage: "Delete", model: .sonnet)
     let other = Chat(firstMessage: "Keep", model: .opus)
     let draft = AttachmentDraft(kind: .text, name: "notes.txt", mediaType: "text/plain", data: Data("notes".utf8))
@@ -112,10 +100,10 @@ private struct TestClaudeClient: ChatStreamingClient {
 }
 
 @MainActor @Test func deletingStreamingChatCannotResaveIt() async throws {
-    let store = libraryStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
     let (stream, continuation) = AsyncThrowingStream<ChatEvent, Error>.makeStream()
-    let controller = ChatController(store: store, client: TestClaudeClient(stream: stream))
+    let controller = ChatController(store: store, client: ScriptedClient(stream: stream))
     let other = Chat(firstMessage: "Keep", model: .haiku)
     try store.save(other)
     let id = controller.send("Delete during reply", model: .opus, effort: .max, to: nil)
@@ -132,42 +120,18 @@ private struct TestClaudeClient: ChatStreamingClient {
     #expect(FileManager.default.fileExists(atPath: store.fileURL(for: other.id).path))
 }
 
-private actor RecordedRequests {
-    struct Request: Sendable {
-        let model: ChatModel
-        let effort: Effort
-        let resume: String?
-    }
-    private(set) var values: [Request] = []
-    func add(_ request: Request) { values.append(request) }
-}
-
-private struct RecordingClaudeClient: ChatStreamingClient {
-    let requests: RecordedRequests
-
-    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                await requests.add(.init(model: model, effort: effort, resume: sessionID))
-                continuation.yield(.finished(sessionID: "recorded-session", fullText: ""))
-                continuation.finish()
-            }
-        }
-    }
-}
-
 @MainActor @Test func sendAndRegenerateHonorSavedChoices() async throws {
-    let store = libraryStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
-    let requests = RecordedRequests()
-    let controller = ChatController(store: store, client: RecordingClaudeClient(requests: requests))
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
+    let client = ScriptedClient([.finished(sessionID: "recorded-session")])
+    let controller = ChatController(store: store, client: client)
     let id = controller.send("Question", model: .haiku, effort: .max, to: nil)
     await controller.waitForReply(id)
     #expect(controller.chat(id)?.model == .haiku)
     #expect(controller.chat(id)?.effort == .max)
     controller.regenerate(id)
     await controller.waitForReply(id)
-    let recorded = await requests.values
+    let recorded = client.requests
     #expect(recorded.count == 2)
     #expect(recorded.allSatisfy { $0.model == .haiku && $0.effort == .max && $0.resume == nil })
     let saved = try #require(store.loadAll().first)
@@ -175,20 +139,20 @@ private struct RecordingClaudeClient: ChatStreamingClient {
 
     controller.regenerate(id, model: .opus, effort: .xhigh)
     await controller.waitForReply(id)
-    let overridden = try #require(await requests.values.last)
+    let overridden = try #require(client.requests.last)
     #expect(overridden.model == .opus && overridden.effort == .xhigh)
     #expect(controller.chat(id)?.model == .opus && controller.chat(id)?.effort == .xhigh)
 
     controller.send("Follow-up", model: .sonnet, effort: .low, to: id)
     await controller.waitForReply(id)
-    let continued = try #require(await requests.values.last)
+    let continued = try #require(client.requests.last)
     #expect(continued.model == .sonnet && continued.effort == .low)
     #expect(continued.resume == "recorded-session")
 }
 
 @MainActor @Test func finishingReplyReordersWithinPinnedGroup() async throws {
-    let store = libraryStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
     var pinned = Chat(firstMessage: "Pinned", model: .opus)
     pinned.isPinned = true
     var older = Chat(firstMessage: "Older", model: .sonnet)
@@ -196,8 +160,8 @@ private struct RecordingClaudeClient: ChatStreamingClient {
     var newer = Chat(firstMessage: "Newer", model: .haiku)
     newer.updatedAt = Date(timeIntervalSince1970: 200)
     for chat in [pinned, older, newer] { try store.save(chat) }
-    let requests = RecordedRequests()
-    let controller = ChatController(store: store, client: RecordingClaudeClient(requests: requests))
+    let client = ScriptedClient([.finished(sessionID: "recorded-session")])
+    let controller = ChatController(store: store, client: client)
     controller.send("Continue", model: .sonnet, effort: .low, to: older.id)
     await controller.waitForReply(older.id)
     #expect(controller.activeChats.map(\.id) == [pinned.id, older.id, newer.id])
@@ -205,10 +169,10 @@ private struct RecordingClaudeClient: ChatStreamingClient {
 }
 
 @MainActor @Test func metadataEditsDuringStreamingSurviveCompletion() async throws {
-    let store = libraryStore()
-    defer { try? FileManager.default.removeItem(at: store.directory) }
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
     let (stream, continuation) = AsyncThrowingStream<ChatEvent, Error>.makeStream()
-    let controller = ChatController(store: store, client: TestClaudeClient(stream: stream))
+    let controller = ChatController(store: store, client: ScriptedClient(stream: stream))
     let id = controller.send("Original title", model: .opus, effort: .high, to: nil)
     controller.rename(id, to: "Renamed while streaming")
     controller.setPinned(true, for: id)

@@ -208,7 +208,7 @@ public final class ChatController {
             case .usage(var usage):
                 usage.duration = Date().timeIntervalSince(chat.messages[index].createdAt)
                 chat.messages[index].usage = usage
-            case .finished(let sessionID, _):
+            case .finished(let sessionID):
                 if let sessionID {
                     chat.sessionID = sessionID
                     chat.messages[index].sessionID = sessionID
@@ -244,13 +244,21 @@ public final class ChatController {
         let id = chat.id
         let model = chat.model
         let client = client
-        titleTasks[id] = Task { [weak self] in
+        let task = Task { [weak self] in
             let title = await client.title(question: question.text, answer: answer.text, model: model)
             guard let self, let title, self.chat(id)?.titleIsAutomatic == true else { return }
-            self.titleTasks[id] = nil
             self.editMetadata(id) { $0.title = title }
         }
+        titleTasks[id] = task
+        // Forget the task however it ended, unless a regenerated reply started a newer one.
+        Task { [weak self] in
+            await task.value
+            if self?.titleTasks[id] == task { self?.titleTasks[id] = nil }
+        }
     }
+
+    /// Chats with a title still being generated (for tests).
+    var pendingTitleCount: Int { titleTasks.count }
 
     /// Waits for a pending generated title (used by tests and the CLI).
     public func waitForTitle(_ chatID: UUID) async {

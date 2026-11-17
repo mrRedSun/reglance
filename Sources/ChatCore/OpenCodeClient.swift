@@ -82,9 +82,7 @@ public actor OpenCodeServer {
 
     static func environment(inherited: [String: String], executable: URL, configHome: URL,
                             systemPrompt: String, password: String) -> [String: String] {
-        var environment = inherited
-        let extraPath = [executable.deletingLastPathComponent().path, "/opt/homebrew/bin", "/usr/local/bin"]
-        environment["PATH"] = (extraPath + [environment["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
+        var environment = Subprocess.environment(inherited: inherited, executable: executable)
         environment["XDG_CONFIG_HOME"] = configHome.path
         let config = try! JSONSerialization.data(withJSONObject: config(systemPrompt: systemPrompt))
         environment["OPENCODE_CONFIG_CONTENT"] = String(decoding: config, as: UTF8.self)
@@ -150,7 +148,7 @@ public actor OpenCodeServer {
         Task.detached {
             var log = ""
             var found = false
-            for await chunk in ClaudeClient.chunks(of: output.fileHandleForReading) where !found {
+            for await chunk in Subprocess.chunks(of: output.fileHandleForReading) where !found {
                 log += String(decoding: chunk, as: UTF8.self)
                 if let url = Self.listeningURL(in: log) {
                     found = true
@@ -289,16 +287,8 @@ public struct OpenCodeClient: ChatStreamingClient {
 
     public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort = .automatic, resume sessionID: String?,
                      agentDirectory: URL? = nil, permissions: AgentPermissions = .auto) -> AsyncThrowingStream<ChatEvent, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task.detached {
-                do {
-                    try await run(content: content, model: model, effort: effort, resume: sessionID, continuation: continuation)
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        .turn { continuation in
+            try await run(content: content, model: model, effort: effort, resume: sessionID, continuation: continuation)
         }
     }
 
@@ -338,19 +328,17 @@ public struct OpenCodeClient: ChatStreamingClient {
         parser.contextWindow = await Self.contextWindow(of: model, connection: connection)
         try await withTaskCancellationHandler {
             for try await event in events {
-                for chatEvent in parser.consume(event.value) { continuation.yield(chatEvent) }
-                if let violation = parser.violation {
-                    try? await connection.send("POST", "/api/session/\(id)/interrupt")
-                    throw ChatError.failed(violation)
+                let chatEvents = parser.consume(event.value)
+                if parser.violation != nil {
+                    _ = try? await connection.send("POST", "/api/session/\(id)/interrupt")
                 }
+                try parser.turn.deliver(chatEvents, to: continuation)
                 if parser.isFinished { break }
             }
         } onCancel: {
             Task { _ = try? await connection.send("POST", "/api/session/\(id)/interrupt") }
         }
-        try Task.checkCancellation()
-        if let message = parser.errorMessage { throw ChatError.failed(message) }
-        guard parser.isFinished else { throw ChatError.failed("OpenCode stopped before the reply was complete.") }
+        try parser.turn.finish(orElse: "OpenCode stopped before the reply was complete.")
     }
 
     struct TemporaryFile {
@@ -387,18 +375,21 @@ public struct OpenCodeClient: ChatStreamingClient {
     /// A short title from a throwaway session on the chat's own model, deleted afterwards.
     public func title(question: String, answer: String, model: ChatModel) async -> String? {
         guard let executable = OpenCodeBackend.executableURL(),
-              let modelRef = try? Self.modelRef(model, effort: .automatic),
-              let connection = try? await OpenCodeServer.shared.connect(executable: executable),
-              let session = try? await connection.send("POST", "/api/session", body: [
+              let modelRef = try? Self.modelRef(model, effort: .automatic) else { return nil }
+        // A turn of its own, so a changed system prompt can't restart the server mid-title.
+        let server = OpenCodeServer.shared
+        guard let connection = try? await server.beginTurn(executable: executable,
+                                                           systemPrompt: Self.systemPrompt(preferences: preferences())) else { return nil }
+        defer { Task { await server.endTurn() } }
+        guard let session = try? await connection.send("POST", "/api/session", body: [
                   "agent": OpenCodeServer.agentID, "model": modelRef, "permissions": OpenCodeServer.permissionRules,
               ]),
               let id = (session["data"] as? [String: Any])?["id"] as? String else { return nil }
         defer { Task { _ = try? await connection.send("DELETE", "/api/session/\(id)") } }
-        let prompt = SystemPrompt.titleInstructions
-            + "\n\nQuestion:\n\(question.prefix(1500))\n\nStart of the answer:\n\(answer.prefix(1500))"
+        let prompt = SystemPrompt.titleInstructions + "\n\n" + ChatTitle.prompt(question: question, answer: answer)
         guard let response = try? await connection.send("POST", "/api/session/\(id)/generate", body: ["prompt": prompt]),
               let text = Self.generatedText(response) else { return nil }
-        return ClaudeClient.cleanTitle(text)
+        return ChatTitle.clean(text)
     }
 
     /// The model's context limit from `/api/model`, for the ⌥ stats. Nil when it can't be read.
@@ -425,11 +416,12 @@ public struct OpenCodeClient: ChatStreamingClient {
 /// Turns v2 `/api/event` events for one session into `ChatEvent`s.
 struct OpenCodeStreamParser {
     let sessionID: String
-    private(set) var text = ""
-    private(set) var isFinished = false
-    private(set) var errorMessage: String?
+    private(set) var turn = TurnState()
+    var text: String { turn.text }
+    var isFinished: Bool { turn.isFinished }
+    var errorMessage: String? { turn.errorMessage }
     /// Set when OpenCode starts anything but a web fetch or search; the reply then stops.
-    private(set) var violation: String?
+    var violation: String? { turn.violation }
     private var toolNames: [String: String] = [:]
     /// From the model list; the events don't carry it.
     var contextWindow: Int?
@@ -439,6 +431,17 @@ struct OpenCodeStreamParser {
     static let allowedTools: [String: String] = ["webfetch": "WebFetch", "websearch": "WebSearch"]
 
     init(sessionID: String) { self.sessionID = sessionID }
+
+    /// Why an interrupted reply ended. Only a stop the person asked for reads "Stopped";
+    /// OpenCode's own reasons (`shutdown`, `superseded`, `inactivity`) say what happened.
+    static func interruption(reason: String?) -> String {
+        switch reason {
+        case "shutdown": "OpenCode's server shut down before the reply finished."
+        case "superseded": "OpenCode replaced this reply with a newer one."
+        case "inactivity": "OpenCode stopped the reply after it went quiet for too long."
+        default: "Stopped"
+        }
+    }
 
     mutating func consume(_ event: [String: Any]) -> [ChatEvent] {
         guard let type = event["type"] as? String,
@@ -452,24 +455,19 @@ struct OpenCodeStreamParser {
             // OpenCode counts cache reads and writes, and reasoning, apart from input and output.
             let input = (Int(json: tokens["input"]) ?? 0) + read + (Int(json: cache["write"]) ?? 0)
             let output = (Int(json: tokens["output"]) ?? 0) + (Int(json: tokens["reasoning"]) ?? 0)
-            var turn = usage ?? TokenUsage(input: 0, output: 0, contextWindow: contextWindow)
-            turn.input += input
-            turn.cachedInput += read
-            turn.output += output
-            turn.context = input + output
-            if let cost = data["cost"] as? Double ?? (data["cost"] as? Int).map(Double.init) { turn.cost = (turn.cost ?? 0) + cost }
-            usage = turn
-            return [.usage(turn)]
+            var total = usage ?? TokenUsage(input: 0, output: 0, contextWindow: contextWindow)
+            total.input += input
+            total.cachedInput += read
+            total.output += output
+            total.context = input + output
+            if let cost = data["cost"] as? Double ?? (data["cost"] as? Int).map(Double.init) { total.cost = (total.cost ?? 0) + cost }
+            usage = total
+            return [.usage(total)]
         case "session.text.started":
             // A new text part after a tool call starts a new paragraph.
-            guard !text.isEmpty, !text.hasSuffix("\n\n") else { return [] }
-            let separator = text.hasSuffix("\n") ? "\n" : "\n\n"
-            text += separator
-            return [.text(separator)]
+            return turn.startParagraph()
         case "session.text.delta":
-            guard let delta = data["delta"] as? String, !delta.isEmpty else { return [] }
-            text += delta
-            return [.text(delta)]
+            return turn.append(data["delta"] as? String ?? "")
         case "session.reasoning.delta":
             guard let delta = data["delta"] as? String, !delta.isEmpty else { return [] }
             return [.thinking(delta)]
@@ -477,31 +475,31 @@ struct OpenCodeStreamParser {
             let name = data["name"] as? String ?? ""
             if let id = data["id"] as? String { toolNames[id] = name }
             if Self.allowedTools[name] == nil {
-                violation = "OpenCode tried to use a tool (\(name.isEmpty ? "unknown" : name)) that Reglance chats don't allow, so the reply was stopped."
+                turn.violation = "OpenCode tried to use a tool (\(name.isEmpty ? "unknown" : name)) that Reglance chats don't allow, so the reply was stopped."
             }
             return []
         case "session.tool.called":
             let name = (data["id"] as? String).flatMap { toolNames[$0] } ?? data["name"] as? String ?? ""
             guard let display = Self.allowedTools[name] else {
-                violation = "OpenCode tried to use a tool (\(name.isEmpty ? "unknown" : name)) that Reglance chats don't allow, so the reply was stopped."
+                turn.violation = "OpenCode tried to use a tool (\(name.isEmpty ? "unknown" : name)) that Reglance chats don't allow, so the reply was stopped."
                 return []
             }
             let input = data["input"] as? [String: Any] ?? [:]
             return [.tool(name: display, detail: input["url"] as? String ?? input["query"] as? String ?? "")]
         case "session.execution.succeeded":
-            isFinished = true
-            return [.finished(sessionID: sessionID, fullText: text)]
+            turn.isFinished = true
+            return [.finished(sessionID: sessionID)]
         case "session.execution.failed":
-            isFinished = true
-            errorMessage = (data["error"] as? [String: Any])?["message"] as? String ?? "OpenCode couldn't answer."
+            turn.isFinished = true
+            turn.errorMessage = (data["error"] as? [String: Any])?["message"] as? String ?? "OpenCode couldn't answer."
             return []
         case "session.execution.interrupted":
-            isFinished = true
-            errorMessage = "Stopped"
+            turn.isFinished = true
+            turn.errorMessage = Self.interruption(reason: data["reason"] as? String)
             return []
         default:
             if type.contains("permission") {
-                violation = "OpenCode asked for a permission Reglance chats don't grant, so the reply was stopped."
+                turn.violation = "OpenCode asked for a permission Reglance chats don't grant, so the reply was stopped."
             }
             return []
         }

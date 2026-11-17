@@ -8,7 +8,7 @@ private struct TransitionTestClient: ChatStreamingClient {
         AsyncThrowingStream { continuation in
             continuation.yield(.session(id: "transition-test-session"))
             continuation.yield(.text("Hello."))
-            continuation.yield(.finished(sessionID: "transition-test-session", fullText: "Hello."))
+            continuation.yield(.finished(sessionID: "transition-test-session"))
             continuation.finish()
         }
     }

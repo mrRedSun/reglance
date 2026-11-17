@@ -12,7 +12,7 @@ import Testing
         #"{"type":"result","subtype":"success","is_error":false,"result":"Basenji","session_id":"abc"}"#,
     ]
     let events = lines.flatMap { parser.consume($0) }
-    #expect(events == [.session(id: "abc"), .text("Bas"), .text("enji"), .finished(sessionID: "abc", fullText: "Basenji")])
+    #expect(events == [.session(id: "abc"), .text("Bas"), .text("enji"), .finished(sessionID: "abc")])
     #expect(parser.isFinished)
     #expect(parser.errorMessage == nil)
 }
@@ -20,7 +20,7 @@ import Testing
 @Test func usesResultWhenNoDeltas() {
     var parser = StreamParser()
     let events = parser.consume(#"{"type":"result","subtype":"success","is_error":false,"result":"Hi","session_id":"s"}"#)
-    #expect(events == [.text("Hi"), .finished(sessionID: "s", fullText: "Hi")])
+    #expect(events == [.text("Hi"), .finished(sessionID: "s")])
 }
 
 @Test func reportsErrorResult() {
@@ -79,10 +79,6 @@ import Testing
     #expect(args.contains("--strict-mcp-config") && args.contains("--disable-slash-commands"))
 }
 
-private func tempStore() -> ChatStore {
-    ChatStore(directory: FileManager.default.temporaryDirectory.appending(path: "reglance-tests-\(UUID().uuidString)"))
-}
-
 private func makeChat(_ turns: [(question: String, answer: String, session: String?)]) -> Chat {
     var chat = Chat(firstMessage: turns[0].question, model: .haiku)
     for turn in turns {
@@ -96,7 +92,8 @@ private func makeChat(_ turns: [(question: String, answer: String, session: Stri
 }
 
 @Test func storeRoundTrip() throws {
-    let store = tempStore()
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
     var chat = makeChat([("Which dogs can't bark?", "The Basenji.", "s1")])
     chat.messages[1].thinkingDuration = 1.5
     try store.save(chat)
@@ -109,13 +106,14 @@ private func makeChat(_ turns: [(question: String, answer: String, session: Stri
 }
 
 @MainActor @Test func regenerateNeedsTheSessionBeforeTheLastTurn() throws {
-    let store = tempStore()
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
     let firstTurn = makeChat([("q1", "a1", "s1")])
     let twoTurns = makeChat([("q1", "a1", "s1"), ("q2", "a2", "s2")])
     let legacy = makeChat([("q1", "a1", nil), ("q2", "a2", nil)]) // saved before per-reply session ids
     for chat in [firstTurn, twoTurns, legacy] { try store.save(chat) }
 
-    let controller = ChatController(store: store)
+    let controller = ChatController(store: store, client: ScriptedClient([]))
     #expect(controller.canRegenerate(firstTurn.id))
     #expect(controller.canRegenerate(twoTurns.id))
     #expect(!controller.canRegenerate(legacy.id))

@@ -25,8 +25,9 @@ import Testing
 }
 
 @Test func storesAttachmentsAndBuildsContentBlocks() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: "reglance-tests-\(UUID().uuidString)")
-    let store = ChatStore(directory: directory)
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
+    let directory = store.directory
     let file = directory.appending(path: "notes.md")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     try "# Hi".write(to: file, atomically: true, encoding: .utf8)

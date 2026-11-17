@@ -74,10 +74,7 @@ final class CodexServer: @unchecked Sendable {
         process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
         // Not ClaudeClient's environment: that adds Claude Code's settings variables.
-        var environment = ProcessInfo.processInfo.environment
-        let extraPath = [executable.deletingLastPathComponent().path, "/opt/homebrew/bin", "/usr/local/bin"]
-        environment["PATH"] = (extraPath + [environment["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
-        process.environment = environment
+        process.environment = Subprocess.environment(inherited: ProcessInfo.processInfo.environment, executable: executable)
         let stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout
@@ -85,24 +82,18 @@ final class CodexServer: @unchecked Sendable {
         handle = ProcessHandle(process)
         (notifications, notificationContinuation) = AsyncStream.makeStream()
         try process.run()
-        _ = ClaudeClient.ignoreBrokenPipe
+        _ = Subprocess.ignoreBrokenPipe
 
         let continuation = notificationContinuation
         Task.detached { [weak self] in
-            var buffer = Data()
-            for await chunk in ClaudeClient.chunks(of: stdout.fileHandleForReading) {
-                buffer.append(chunk)
-                while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
-                    let line = buffer[..<newline]
-                    buffer.removeSubrange(...newline)
-                    guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
-                    self?.receive(object, continuation: continuation)
-                }
+            for await line in Subprocess.lines(of: stdout.fileHandleForReading) {
+                guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+                self?.receive(object, continuation: continuation)
             }
             continuation.finish()
         }
         Task.detached { [weak self] in
-            let text = await ClaudeClient.readAll(stderr.fileHandleForReading)
+            let text = await Subprocess.readAll(stderr.fileHandleForReading)
             self?.lock.withLock { self?.errorOutput = text }
         }
     }
@@ -184,12 +175,6 @@ final class CodexServer: @unchecked Sendable {
     deinit { terminate() }
 }
 
-/// A JSON object from `JSONSerialization`, handed from the reader task to one consumer.
-struct SendableJSON: @unchecked Sendable {
-    let value: [String: Any]
-    init(_ value: [String: Any]) { self.value = value }
-}
-
 /// The `codex` CLI as a streaming chat: one `codex app-server` per turn (it starts in a
 /// fraction of a second), restricted to web search by `CodexLockdown`, with Reglance's
 /// system prompt replacing Codex's own. Agent mode is refused by `BackendRouter`.
@@ -228,16 +213,8 @@ public struct CodexClient: ChatStreamingClient {
 
     public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort = .automatic, resume sessionID: String?,
                      agentDirectory: URL? = nil, permissions: AgentPermissions = .auto) -> AsyncThrowingStream<ChatEvent, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task.detached {
-                do {
-                    try await run(content: content, model: model, effort: effort, resume: sessionID, continuation: continuation)
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
+        .turn { continuation in
+            try await run(content: content, model: model, effort: effort, resume: sessionID, continuation: continuation)
         }
     }
 
@@ -284,13 +261,10 @@ public struct CodexClient: ChatStreamingClient {
                     server.decline(object)
                     continue
                 }
-                for event in parser.consume(object) { continuation.yield(event) }
-                if let violation = parser.violation { throw ChatError.failed(violation) }
+                try parser.turn.deliver(parser.consume(object), to: continuation)
                 if parser.isFinished { break }
             }
-            try Task.checkCancellation()
-            if let message = parser.errorMessage { throw ChatError.failed(message) }
-            guard parser.isFinished else { throw ChatError.failed(server.exitMessage) }
+            try parser.turn.finish(orElse: server.exitMessage)
         } onCancel: {
             turn.interrupt()
         }
@@ -349,7 +323,7 @@ public struct CodexClient: ChatStreamingClient {
     /// A short title on the chat's own model: an ephemeral thread, low effort.
     public func title(question: String, answer: String, model: ChatModel) async -> String? {
         guard let executable = CodexBackend.executableURL() else { return nil }
-        let prompt = "Question:\n\(question.prefix(1500))\n\nStart of the answer:\n\(answer.prefix(1500))"
+        let prompt = ChatTitle.prompt(question: question, answer: answer)
         let workingDirectory = workingDirectory
         return await Task.detached {
             guard let server = try? CodexServer(executable: executable, workingDirectory: workingDirectory) else { return nil }
@@ -370,7 +344,7 @@ public struct CodexClient: ChatStreamingClient {
                     if parser.isFinished || parser.violation != nil { break }
                 }
                 guard parser.isFinished, parser.errorMessage == nil, parser.violation == nil else { return nil }
-                return ClaudeClient.cleanTitle(parser.text)
+                return ChatTitle.clean(parser.text)
             } catch {
                 return nil
             }
@@ -380,11 +354,12 @@ public struct CodexClient: ChatStreamingClient {
 
 /// Turns `codex app-server` notifications into `ChatEvent`s, like `StreamParser` does for Claude.
 struct CodexStreamParser {
-    private(set) var text = ""
-    private(set) var isFinished = false
-    private(set) var errorMessage: String?
+    private(set) var turn = TurnState()
+    var text: String { turn.text }
+    var isFinished: Bool { turn.isFinished }
+    var errorMessage: String? { turn.errorMessage }
     /// Set when Codex starts something an ordinary chat must not do; the turn then stops.
-    private(set) var violation: String?
+    var violation: String? { turn.violation }
     private var messageCount = 0
     /// The turn's usage so far: one `last` breakdown per model call, added up.
     private var usage: TokenUsage?
@@ -395,48 +370,47 @@ struct CodexStreamParser {
         switch method {
         case "mcpServer/startupStatus/updated":
             let name = params["name"] as? String ?? "an MCP server"
-            violation = "Codex started \(name), which Reglance chats don't allow. Remove it from ~/.codex/config.toml or ask in a Claude chat."
+            turn.violation = "Codex started \(name), which Reglance chats don't allow. Remove it from ~/.codex/config.toml or ask in a Claude chat."
             return []
         case "item/started":
             return itemStarted(params["item"] as? [String: Any] ?? [:])
         case "item/agentMessage/delta":
-            guard let delta = params["delta"] as? String, !delta.isEmpty else { return [] }
-            text += delta
-            return [.text(delta)]
+            return turn.append(params["delta"] as? String ?? "")
         case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta":
             guard let delta = params["delta"] as? String, !delta.isEmpty else { return [] }
             return [.thinking(delta)]
         case "thread/tokenUsage/updated":
             guard let tokens = params["tokenUsage"] as? [String: Any],
                   let last = tokens["last"] as? [String: Any] else { return [] }
-            var turn = usage ?? TokenUsage(input: 0, output: 0)
+            var total = usage ?? TokenUsage(input: 0, output: 0)
             // Codex counts cached and reasoning tokens inside input and output.
-            turn.input += Int(json: last["inputTokens"]) ?? 0
-            turn.cachedInput += Int(json: last["cachedInputTokens"]) ?? 0
-            turn.output += Int(json: last["outputTokens"]) ?? 0
-            turn.context = Int(json: last["totalTokens"])
-            turn.contextWindow = Int(json: tokens["modelContextWindow"])
-            usage = turn
-            return [.usage(turn)]
+            total.input += Int(json: last["inputTokens"]) ?? 0
+            total.cachedInput += Int(json: last["cachedInputTokens"]) ?? 0
+            total.output += Int(json: last["outputTokens"]) ?? 0
+            total.context = Int(json: last["totalTokens"])
+            total.contextWindow = Int(json: tokens["modelContextWindow"])
+            usage = total
+            return [.usage(total)]
         case "error":
             // A retried error (a dropped connection) isn't final.
             if params["willRetry"] as? Bool != true {
-                errorMessage = (params["error"] as? [String: Any])?["message"] as? String ?? "Codex couldn't answer."
+                turn.errorMessage = (params["error"] as? [String: Any])?["message"] as? String ?? "Codex couldn't answer."
             }
             return []
         case "turn/completed":
-            isFinished = true
-            let turn = params["turn"] as? [String: Any] ?? [:]
-            switch turn["status"] as? String {
+            turn.isFinished = true
+            let result = params["turn"] as? [String: Any] ?? [:]
+            switch result["status"] as? String {
             case "failed":
-                errorMessage = errorMessage ?? ((turn["error"] as? [String: Any])?["message"] as? String) ?? "Codex couldn't answer."
+                turn.errorMessage = turn.errorMessage
+                    ?? ((result["error"] as? [String: Any])?["message"] as? String) ?? "Codex couldn't answer."
                 return []
             case "interrupted":
-                errorMessage = "Stopped"
+                turn.errorMessage = "Stopped"
                 return []
             default:
-                guard errorMessage == nil else { return [] }
-                return [.finished(sessionID: params["threadId"] as? String, fullText: text)]
+                guard turn.errorMessage == nil else { return [] }
+                return [.finished(sessionID: params["threadId"] as? String)]
             }
         default:
             return []
@@ -446,17 +420,14 @@ struct CodexStreamParser {
     private mutating func itemStarted(_ item: [String: Any]) -> [ChatEvent] {
         let type = item["type"] as? String ?? ""
         guard CodexClient.allowedItemTypes.contains(type) else {
-            violation = "Codex tried to use a tool (\(type)) that Reglance chats don't allow, so the reply was stopped."
+            turn.violation = "Codex tried to use a tool (\(type)) that Reglance chats don't allow, so the reply was stopped."
             return []
         }
         switch type {
         case "agentMessage":
             messageCount += 1
             // A later message starts a new paragraph.
-            guard messageCount > 1, !text.isEmpty, !text.hasSuffix("\n\n") else { return [] }
-            let separator = text.hasSuffix("\n") ? "\n" : "\n\n"
-            text += separator
-            return [.text(separator)]
+            return messageCount > 1 ? turn.startParagraph() : []
         case "webSearch":
             return [.tool(name: "WebSearch", detail: item["query"] as? String ?? "")]
         default:

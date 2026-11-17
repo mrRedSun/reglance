@@ -21,7 +21,7 @@ private func usages(_ events: [ChatEvent]) -> [TokenUsage] {
     let events = lines.flatMap { parser.consume($0) }
     let usage = try #require(usages(events).last)
     #expect(usage == TokenUsage(input: 6007, cachedInput: 3000, output: 47, context: 3045, contextWindow: 1_000_000, cost: 0.0125))
-    #expect(events.last == .finished(sessionID: "s", fullText: "Hi"))
+    #expect(events.last == .finished(sessionID: "s"))
 }
 
 @Test func codexUsageAddsUpEachCallOfTheTurn() throws {
@@ -62,23 +62,12 @@ private func usages(_ events: [ChatEvent]) -> [TokenUsage] {
     #expect(TokenUsage(input: 1, output: 1).contextLeft == nil)
 }
 
-private struct UsageClient: ChatStreamingClient {
-    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
-              agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(.text("Hi"))
-            continuation.yield(.usage(TokenUsage(input: 10, output: 2, context: 12, contextWindow: 100)))
-            continuation.yield(.finished(sessionID: "s", fullText: "Hi"))
-            continuation.finish()
-        }
-    }
-}
-
 @MainActor @Test func theReplyKeepsItsUsageAcrossLaunches() async throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: "reglance-usage-\(UUID().uuidString)")
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let store = ChatStore(directory: directory)
-    let controller = ChatController(store: store, client: UsageClient())
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
+    let client = ScriptedClient([.text("Hi"), .usage(TokenUsage(input: 10, output: 2, context: 12, contextWindow: 100)),
+                                 .finished(sessionID: "s")])
+    let controller = ChatController(store: store, client: client)
     let id = controller.send("Hello", model: .haiku, to: nil)
     await controller.waitForReply(id)
     let saved = try #require(store.loadAll().first { $0.id == id }?.messages.last?.usage)

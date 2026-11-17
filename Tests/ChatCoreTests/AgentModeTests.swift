@@ -55,35 +55,11 @@ import Testing
     ])
 }
 
-private actor Requests {
-    private(set) var directories: [URL?] = []
-    private(set) var permissions: [AgentPermissions] = []
-    func add(_ directory: URL?, _ permission: AgentPermissions) {
-        directories.append(directory)
-        permissions.append(permission)
-    }
-}
-
-private struct RecordingClient: ChatStreamingClient {
-    let requests: Requests
-
-    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
-              agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                await requests.add(agentDirectory, permissions)
-                continuation.yield(.finished(sessionID: "s-\(UUID())", fullText: "ok"))
-                continuation.finish()
-            }
-        }
-    }
-}
-
 @MainActor @Test func aChatKeepsTheModeItWasCreatedWith() async throws {
-    let store = ChatStore(directory: FileManager.default.temporaryDirectory.appending(path: "reglance-agent-tests-\(UUID())"))
-    defer { try? FileManager.default.removeItem(at: store.directory) }
-    let requests = Requests()
-    let controller = ChatController(store: store, client: RecordingClient(requests: requests))
+    let store = ChatStore.temporary()
+    defer { store.removeDirectory() }
+    let client = ScriptedClient { _ in ScriptedClient.stream([.finished(sessionID: "s-\(UUID())")]) }
+    let controller = ChatController(store: store, client: client)
     let folder = URL(filePath: "/tmp/project", directoryHint: .isDirectory)
 
     let agent = controller.send("Fix the build", model: .sonnet, agentDirectory: folder, agentPermissions: .bypass, to: nil)
@@ -100,9 +76,9 @@ private struct RecordingClient: ChatStreamingClient {
     controller.send("Delete my files", model: .sonnet, agentDirectory: folder, to: chat)
     await controller.waitForReply(chat)
 
-    #expect(await requests.directories == [folder, folder, folder, nil, nil])
+    #expect(client.requests.map(\.agentDirectory) == [folder, folder, folder, nil, nil])
     // Follow-ups keep the permissions the agent chat was created with.
-    #expect(await requests.permissions.prefix(3) == [.bypass, .bypass, .bypass])
+    #expect(client.requests.map(\.permissions).prefix(3) == [.bypass, .bypass, .bypass])
     #expect(controller.chat(agent)?.agentDirectory == folder)
     #expect(controller.chat(chat)?.isAgent == false)
 

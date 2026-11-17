@@ -317,7 +317,7 @@ private struct TitleDragTestClient: ChatStreamingClient {
     func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
         AsyncThrowingStream { continuation in
             continuation.yield(.text("Sure."))
-            continuation.yield(.finished(sessionID: "title-drag-test", fullText: "Sure."))
+            continuation.yield(.finished(sessionID: "title-drag-test"))
             continuation.finish()
         }
     }

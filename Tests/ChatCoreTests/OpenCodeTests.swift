@@ -26,7 +26,7 @@ private func consume(_ events: [[String: Any]], into parser: inout OpenCodeStrea
         event("session.step.ended", ["finish": "stop"]),
         event("session.execution.succeeded"),
     ], into: &parser)
-    #expect(events == [.thinking("The user wants "), .text("1 2 3 "), .text("4 5"), .finished(sessionID: sid, fullText: "1 2 3 4 5")])
+    #expect(events == [.thinking("The user wants "), .text("1 2 3 "), .text("4 5"), .finished(sessionID: sid)])
     #expect(parser.isFinished && parser.errorMessage == nil && parser.violation == nil)
 }
 
@@ -82,6 +82,13 @@ private func consume(_ events: [[String: Any]], into parser: inout OpenCodeStrea
     _ = interrupted.consume(event("session.execution.interrupted", ["reason": "user"]))
     #expect(interrupted.isFinished)
     #expect(interrupted.errorMessage == "Stopped")
+
+    // OpenCode's own reasons say what happened instead of looking like the person stopped it.
+    var idle = OpenCodeStreamParser(sessionID: sid)
+    _ = idle.consume(event("session.execution.interrupted", ["reason": "inactivity"]))
+    #expect(idle.errorMessage == "OpenCode stopped the reply after it went quiet for too long.")
+    #expect(OpenCodeStreamParser.interruption(reason: "shutdown") != "Stopped")
+    #expect(OpenCodeStreamParser.interruption(reason: "superseded") != "Stopped")
 }
 
 @Test func openCodeModelsComeFromTheAPIWithTheirVariantsAsEfforts() {
@@ -203,31 +210,27 @@ private func consume(_ events: [[String: Any]], into parser: inout OpenCodeStrea
     #expect(missing.checks.map(\.status) == [.warning])
 }
 
-/// The pid of the guard shell's `sleep` child, or nil before it starts.
-private func childPID(of parent: pid_t) throws -> pid_t? {
-    let pgrep = Process()
-    pgrep.executableURL = URL(filePath: "/usr/bin/pgrep")
-    pgrep.arguments = ["-P", String(parent), "sleep"]
-    let out = Pipe()
-    pgrep.standardOutput = out
-    try pgrep.run()
-    let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    pgrep.waitUntilExit()
-    return text.split(whereSeparator: \.isNewline).first.flatMap { pid_t(String($0)) }
-}
-
 private func waitUntil(_ condition: () -> Bool) async throws -> Bool {
-    for _ in 0..<100 where !condition() { try await Task.sleep(for: .milliseconds(50)) }
+    for _ in 0..<500 where !condition() { try await Task.sleep(for: .milliseconds(10)) }
     return condition()
 }
 
 @Test func theServerStopsWhenReglanceGoesAway() async throws {
-    // Reglance dying closes its end of the guard's pipe, exactly like closing it here.
-    let guarded = try ParentGuard.launch(URL(filePath: "/bin/sleep"), arguments: ["60"], configure: { _ in })
+    // The guarded "server" writes its pid, then becomes `sleep` in the same process, so the
+    // test knows which process to watch without searching the process table.
+    let pidFile = FileManager.default.temporaryDirectory.appending(path: "reglance-guard-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: pidFile) }
+    let guarded = try ParentGuard.launch(URL(filePath: "/bin/sh"),
+                                         arguments: ["-c", "echo $$ > \"$0\"; exec sleep 60", pidFile.path],
+                                         configure: { _ in })
     var server: pid_t?
-    #expect(try await waitUntil { server = try? childPID(of: guarded.process.processIdentifier); return server != nil })
+    #expect(try await waitUntil {
+        server = (try? String(contentsOf: pidFile, encoding: .utf8)).flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return server != nil
+    })
     let pid = try #require(server)
     #expect(kill(pid, 0) == 0)
+    // Reglance dying closes its end of the guard's pipe, exactly like closing it here.
     guarded.release()
     #expect(try await waitUntil { kill(pid, 0) != 0 })
     #expect(try await waitUntil { !guarded.process.isRunning })
