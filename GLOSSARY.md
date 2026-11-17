@@ -20,7 +20,7 @@ The words this project uses for its own concepts. Use them in code, issues and d
 
 **Guard.** The small shell (`ParentGuard`, shown as `reglance-guard`) between ReGlance and a long-lived CLI server, so the server stops however ReGlance ends, crashes included. *Not to be confused with* the lockdown.
 
-**Composer.** The text field with the agent toggle, model pill and send button (`PromptBarView`). There is one composer, used by both windows.
+**Composer.** The text field with the agent toggle, model pill and send button (`PromptBarView`). There is one composer view, used by both windows. Each window has its own composer session (`ComposerSession`): the draft, attachments, model, effort and agent folder, and the actions both windows share.
 
 **Floating bar.** The non-activating panel opened with ⌥Space (`FloatingPanel`). It grows upward into a reply panel once a chat starts.
 
