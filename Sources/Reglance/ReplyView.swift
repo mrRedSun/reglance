@@ -106,6 +106,8 @@ struct MessageView: View {
 
     @State private var hovering = false
     @Environment(\.conversationTextSize) private var textSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let optionKey = OptionKey.shared
 
     var body: some View {
         switch message.role {
@@ -151,14 +153,24 @@ struct MessageView: View {
                         .foregroundStyle(.secondary)
                 }
                 if !isStreaming, !message.text.isEmpty {
+                    let showsStats = optionKey.isHeld && message.usage != nil
                     HStack(spacing: 2) {
                         CopyButton(help: "Copy") { [message.text as NSString] }
                         if isLast, canRegenerate {
                             HeaderButton(systemName: "arrow.clockwise", help: "Regenerate", size: 24, action: onRegenerate)
                         }
+                        if showsStats, let usage = message.usage {
+                            NerdStatsView(usage: usage, showsContext: isLast)
+                                .padding(.leading, 6)
+                                .transition(reduceMotion ? .opacity : .opacity
+                                    .combined(with: .scale(scale: 0.85, anchor: .leading))
+                                    .combined(with: .blur))
+                        }
                     }
                     .padding(.top, -2)
-                    .opacity(isLast || hovering ? 1 : 0)
+                    .opacity(isLast || hovering || showsStats ? 1 : 0)
+                    .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.3, dampingFraction: 0.8),
+                               value: showsStats)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -410,4 +422,16 @@ struct HeaderButton: View {
         .help(help)
         .onHover { hovering = $0 }
     }
+}
+
+private extension AnyTransition {
+    /// Comes into focus as it appears, like the picker card's bloom.
+    static var blur: AnyTransition {
+        .modifier(active: BlurModifier(radius: 6), identity: BlurModifier(radius: 0))
+    }
+}
+
+private struct BlurModifier: ViewModifier {
+    let radius: CGFloat
+    func body(content: Content) -> some View { content.blur(radius: radius) }
 }

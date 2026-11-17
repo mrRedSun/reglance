@@ -48,6 +48,8 @@ public struct Message: Codable, Identifiable, Equatable, Sendable {
     public var thinkingDuration: TimeInterval?
     /// Assistant only: tool calls made while answering, in order.
     public var toolSteps: [ToolStep]?
+    /// Assistant only: tokens, context and cost, when the CLI reported them.
+    public var usage: TokenUsage?
     /// User only: files sent with the message.
     public var attachments: [Attachment]?
 

@@ -386,6 +386,8 @@ struct CodexStreamParser {
     /// Set when Codex starts something an ordinary chat must not do; the turn then stops.
     private(set) var violation: String?
     private var messageCount = 0
+    /// The turn's usage so far: one `last` breakdown per model call, added up.
+    private var usage: TokenUsage?
 
     mutating func consume(_ notification: [String: Any]) -> [ChatEvent] {
         guard let method = notification["method"] as? String else { return [] }
@@ -404,6 +406,18 @@ struct CodexStreamParser {
         case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta":
             guard let delta = params["delta"] as? String, !delta.isEmpty else { return [] }
             return [.thinking(delta)]
+        case "thread/tokenUsage/updated":
+            guard let tokens = params["tokenUsage"] as? [String: Any],
+                  let last = tokens["last"] as? [String: Any] else { return [] }
+            var turn = usage ?? TokenUsage(input: 0, output: 0)
+            // Codex counts cached and reasoning tokens inside input and output.
+            turn.input += Int(json: last["inputTokens"]) ?? 0
+            turn.cachedInput += Int(json: last["cachedInputTokens"]) ?? 0
+            turn.output += Int(json: last["outputTokens"]) ?? 0
+            turn.context = Int(json: last["totalTokens"])
+            turn.contextWindow = Int(json: tokens["modelContextWindow"])
+            usage = turn
+            return [.usage(turn)]
         case "error":
             // A retried error (a dropped connection) isn't final.
             if params["willRetry"] as? Bool != true {

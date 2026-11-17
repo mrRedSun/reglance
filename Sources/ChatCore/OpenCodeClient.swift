@@ -335,6 +335,7 @@ public struct OpenCodeClient: ChatStreamingClient {
         try await connection.send("POST", "/api/session/\(id)/prompt", body: Self.promptBody(content, files: files))
 
         var parser = OpenCodeStreamParser(sessionID: id)
+        parser.contextWindow = await Self.contextWindow(of: model, connection: connection)
         try await withTaskCancellationHandler {
             for try await event in events {
                 for chatEvent in parser.consume(event.value) { continuation.yield(chatEvent) }
@@ -400,6 +401,17 @@ public struct OpenCodeClient: ChatStreamingClient {
         return ClaudeClient.cleanTitle(text)
     }
 
+    /// The model's context limit from `/api/model`, for the ⌥ stats. Nil when it can't be read.
+    static func contextWindow(of model: ChatModel, connection: OpenCodeServer.Connection) async -> Int? {
+        guard let ref = try? modelRef(model, effort: .automatic),
+              let models = (try? await connection.send("GET", "/api/model"))?["data"] as? [[String: Any]] else { return nil }
+        let entry = models.first {
+            $0["providerID"] as? String == ref["providerID"] as? String
+                && ($0["id"] as? String ?? $0["modelID"] as? String) == ref["id"] as? String
+        }
+        return (entry?["limit"] as? [String: Any]).flatMap { Int(json: $0["context"]) }
+    }
+
     /// The text of a `generate` response, whichever shape it has.
     static func generatedText(_ response: [String: Any]) -> String? {
         if let text = response["data"] as? String { return text }
@@ -419,6 +431,10 @@ struct OpenCodeStreamParser {
     /// Set when OpenCode starts anything but a web fetch or search; the reply then stops.
     private(set) var violation: String?
     private var toolNames: [String: String] = [:]
+    /// From the model list; the events don't carry it.
+    var contextWindow: Int?
+    /// The turn's usage so far, added up over its steps (model calls).
+    private var usage: TokenUsage?
 
     static let allowedTools: [String: String] = ["webfetch": "WebFetch", "websearch": "WebSearch"]
 
@@ -429,6 +445,21 @@ struct OpenCodeStreamParser {
               let data = event["data"] as? [String: Any],
               data["sessionID"] as? String == sessionID else { return [] }
         switch type {
+        case "session.step.ended":
+            guard let tokens = data["tokens"] as? [String: Any] else { return [] }
+            let cache = tokens["cache"] as? [String: Any] ?? [:]
+            let read = Int(json: cache["read"]) ?? 0
+            // OpenCode counts cache reads and writes, and reasoning, apart from input and output.
+            let input = (Int(json: tokens["input"]) ?? 0) + read + (Int(json: cache["write"]) ?? 0)
+            let output = (Int(json: tokens["output"]) ?? 0) + (Int(json: tokens["reasoning"]) ?? 0)
+            var turn = usage ?? TokenUsage(input: 0, output: 0, contextWindow: contextWindow)
+            turn.input += input
+            turn.cachedInput += read
+            turn.output += output
+            turn.context = input + output
+            if let cost = data["cost"] as? Double ?? (data["cost"] as? Int).map(Double.init) { turn.cost = (turn.cost ?? 0) + cost }
+            usage = turn
+            return [.usage(turn)]
         case "session.text.started":
             // A new text part after a tool call starts a new paragraph.
             guard !text.isEmpty, !text.hasSuffix("\n\n") else { return [] }

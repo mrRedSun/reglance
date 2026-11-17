@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = makeMainMenu()
+        OptionKey.shared.start()
         statusItem = makeStatusItem()
         panel = FloatingPanelController(chats: chats, model: bar) { [weak self] chatID in
             self?.panel.hide()

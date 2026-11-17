@@ -9,6 +9,8 @@ public enum ChatEvent: Equatable, Sendable {
     case thinking(String)
     /// Claude started using a tool: `WebSearch` (detail = query) or `WebFetch` (detail = URL).
     case tool(name: String, detail: String)
+    /// Token usage of the turn so far; a later report replaces an earlier one.
+    case usage(TokenUsage)
     /// The reply is complete.
     case finished(sessionID: String?, fullText: String)
 }
@@ -338,8 +340,35 @@ public struct StreamParser: Sendable {
     public private(set) var text = ""
     public private(set) var isFinished = false
     public private(set) var errorMessage: String?
+    /// Tokens in the latest model call: its prompt (cached or not) plus its output.
+    private var lastCallContext: Int?
 
     public init() {}
+
+    /// The prompt plus output of one API `usage` object.
+    static func callTokens(_ usage: [String: Any]) -> Int {
+        ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"]
+            .reduce(0) { $0 + (Int(json: usage[$1]) ?? 0) }
+    }
+
+    /// The turn's usage from the `result` line: `usage` sums every call of the turn and
+    /// `modelUsage` has the context window. Side calls (a search summary on a small model)
+    /// get their own `modelUsage` entry; the one with the most prompt tokens is the chat's.
+    func usage(fromResult object: [String: Any]) -> TokenUsage? {
+        guard let usage = object["usage"] as? [String: Any] else { return nil }
+        let cached = Int(json: usage["cache_read_input_tokens"]) ?? 0
+        let input = (Int(json: usage["input_tokens"]) ?? 0) + (Int(json: usage["cache_creation_input_tokens"]) ?? 0) + cached
+        let models = (object["modelUsage"] as? [String: [String: Any]] ?? [:]).values
+        let main = models.max { a, b in
+            let prompt = { (m: [String: Any]) in
+                ["inputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"].reduce(0) { $0 + (Int(json: m[$1]) ?? 0) }
+            }
+            return prompt(a) < prompt(b)
+        }
+        return TokenUsage(input: input, cachedInput: cached, output: Int(json: usage["output_tokens"]) ?? 0,
+                          context: lastCallContext, contextWindow: main.flatMap { Int(json: $0["contextWindow"]) },
+                          cost: object["total_cost_usd"] as? Double)
+    }
 
     /// The most telling input of a tool call: a search query, URL, shell command or path.
     static func toolDetail(_ input: [String: Any]) -> String {
@@ -374,6 +403,10 @@ public struct StreamParser: Sendable {
 
         case "stream_event":
             guard let event = object["event"] as? [String: Any] else { return [] }
+            // Each model call reports its usage at the start and, with the final output count, at the end.
+            if let usage = event["usage"] as? [String: Any] ?? (event["message"] as? [String: Any])?["usage"] as? [String: Any] {
+                lastCallContext = Self.callTokens(usage)
+            }
             // A new text block after a tool call starts a new paragraph.
             if event["type"] as? String == "content_block_start",
                (event["content_block"] as? [String: Any])?["type"] as? String == "text",
@@ -407,6 +440,7 @@ public struct StreamParser: Sendable {
                 return []
             }
             var events: [ChatEvent] = []
+            if let usage = usage(fromResult: object) { events.append(.usage(usage)) }
             // No partial messages arrived (e.g. an older CLI): emit the whole reply at once.
             if text.isEmpty, !result.isEmpty {
                 text = result

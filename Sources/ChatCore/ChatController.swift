@@ -205,6 +205,9 @@ public final class ChatController {
                 chat.messages[index].thinking = (chat.messages[index].thinking ?? "") + chunk
             case .tool(let name, let detail):
                 chat.messages[index].toolSteps = (chat.messages[index].toolSteps ?? []) + [ToolStep(name: name, detail: detail, textOffset: chat.messages[index].text.utf8.count)]
+            case .usage(var usage):
+                usage.duration = Date().timeIntervalSince(chat.messages[index].createdAt)
+                chat.messages[index].usage = usage
             case .finished(let sessionID, _):
                 if let sessionID {
                     chat.sessionID = sessionID
