@@ -3,21 +3,10 @@ import ChatCore
 import Testing
 @testable import Reglance
 
-private struct TransitionTestClient: ChatStreamingClient {
-    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(.session(id: "transition-test-session"))
-            continuation.yield(.text("Hello."))
-            continuation.yield(.finished(sessionID: "transition-test-session"))
-            continuation.finish()
-        }
-    }
-}
-
 @MainActor
 @Test(.headlessWindows) func sendingKeepsTheSameNativeComposerAndBottomAnchor() async throws {
     _ = NSApplication.shared
-    let chats = makeChats(client: TransitionTestClient())
+    let chats = makeChats(client: ScriptedClient(replying: "Hello.", session: "transition-test-session"))
     let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
     let bar = controller.composer
     controller.show()

@@ -67,7 +67,7 @@ struct WindowAndPasteTests {
 
     @Test func expandedPanelDragsByItsTitle() async throws {
         _ = NSApplication.shared
-        let chats = makeChats(client: TitleDragTestClient())
+        let chats = makeChats(client: ScriptedClient(replying: "Sure.", session: "title-drag-test"))
         let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
         controller.composer.chatID = chats.send("Plan a weekend trip to the mountains", model: .sonnet, to: nil)
         await chats.waitForReply(try #require(controller.composer.chatID))
@@ -301,15 +301,5 @@ struct WindowAndPasteTests {
         defer { board.releaseGlobally() }
         board.setString("hello", forType: .string)
         #expect(!AttachmentPasteboard.paste(into: AttachmentTray(), from: board))
-    }
-}
-
-private struct TitleDragTestClient: ChatStreamingClient {
-    func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(.text("Sure."))
-            continuation.yield(.finished(sessionID: "title-drag-test"))
-            continuation.finish()
-        }
     }
 }
