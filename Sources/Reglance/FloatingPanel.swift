@@ -44,7 +44,8 @@ final class FloatingPanelController {
     private var mouseMonitors: [Any] = []
     /// The glass in the hosting view's coordinates, reported by SwiftUI.
     private var glassFrame: CGRect = .zero
-    private var pickerFrame: CGRect = .zero
+    /// The picker card in the hosting view's coordinates; empty while it's closed.
+    private(set) var pickerFrame: CGRect = .zero
 
     /// Margin around the glass so its shadow isn't clipped by the window edge.
     static let margin: CGFloat = 24
@@ -161,7 +162,10 @@ final class FloatingPanelController {
         // Let the hidden starting state reach the compositor before expanding the glass.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.panel.isVisible, self.presentationGeneration == generation else { return }
-            self.presentation.isPresented = true
+            // Tests run headless and check the settled layout, so they skip the bloom.
+            var transaction = Transaction()
+            transaction.disablesAnimations = WindowPresentation.isHeadless
+            withTransaction(transaction) { self.presentation.isPresented = true }
         }
     }
 

@@ -7,6 +7,17 @@ import Testing
 @MainActor
 struct SettingsWindowTests {
     /// Puts a view in a window sized by SwiftUI and returns the window's content height.
+    /// Waits until SwiftUI's preferred size has reached the window and holds for 100ms.
+    private func settledHeight(of window: NSWindow) async -> CGFloat {
+        var last = -1.0, since = ContinuousClock.now
+        await waitUntil {
+            let height = window.contentLayoutRect.height
+            if height != last { last = height; since = .now }
+            return ContinuousClock.now - since >= .milliseconds(100)
+        }
+        return last
+    }
+
     private func contentHeight(of view: some View) async throws -> CGFloat {
         _ = NSApplication.shared
         let host = NSHostingController(rootView: view)
@@ -15,8 +26,7 @@ struct SettingsWindowTests {
         WindowPresentation.prepare(window)
         window.orderFront(nil)
         defer { window.close() }
-        try await Task.sleep(for: .milliseconds(300))
-        return window.contentLayoutRect.height
+        return await settledHeight(of: window)
     }
 
     @Test func aTallPaneStopsAtTheMaximumHeight() async throws {
@@ -44,9 +54,9 @@ struct SettingsWindowTests {
         WindowPresentation.prepare(window)
         window.orderFront(nil)
         defer { window.close() }
-        try await Task.sleep(for: .milliseconds(500))
-        #expect(window.title == "General")
-        #expect(window.contentLayoutRect.height <= SettingsPane<EmptyView>.maxHeight)
-        #expect(window.contentLayoutRect.height > 200)
+        #expect(await waitUntil { window.title == "General" })
+        let height = await settledHeight(of: window)
+        #expect(height <= SettingsPane<EmptyView>.maxHeight)
+        #expect(height > 200)
     }
 }

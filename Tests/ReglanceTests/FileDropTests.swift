@@ -24,9 +24,7 @@ struct FileDropTests {
         let drag = FakeDrag(pasteboard: board, window: editor.window)
         #expect(editor.draggingEntered(drag).contains(.copy))
         #expect(editor.performDragOperation(drag))
-        for _ in 0..<100 where tray.drafts.isEmpty {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
+        await waitUntil { !tray.drafts.isEmpty }
         #expect(tray.drafts.count == 1)
         #expect(editor.string.isEmpty, "Dropped file inserted text: \(editor.string)")
     }
@@ -34,11 +32,9 @@ struct FileDropTests {
     @Test func droppingAFileOnTheFloatingPanelAttachesIt() async throws {
         _ = NSApplication.shared
         let controller = FloatingPanelController(chats: makeChats(), openInWindow: { _ in })
-        controller.show()
         defer { controller.hide() }
-        try await Task.sleep(for: .milliseconds(150))
-        let root = try #require(controller.panel.contentView)
-        try await expectDropAttachesFile(try #require(findView(PromptTextView.self, in: root)))
+        #expect(await showSettled(controller))
+        try await expectDropAttachesFile(try #require(await editor(in: controller.panel)))
     }
 
     @Test func droppingAFileOnTheChatsWindowAttachesIt() async throws {
@@ -46,9 +42,7 @@ struct FileDropTests {
         let controller = MainWindowController(chats: makeChats())
         controller.show()
         defer { controller.window.performClose(nil) }
-        try await Task.sleep(for: .milliseconds(200))
-        let root = try #require(controller.window.contentView)
-        try await expectDropAttachesFile(try #require(findView(PromptTextView.self, in: root)))
+        try await expectDropAttachesFile(try #require(await editor(in: controller.window)))
     }
 }
 

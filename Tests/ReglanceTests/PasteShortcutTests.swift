@@ -32,20 +32,16 @@ struct PasteShortcutTests {
         let tray = AttachmentTray()
         editor.pasteAttachment = { AttachmentPasteboard.paste(into: tray, from: $0) }
         editor.paste(paste)
-        for _ in 0..<100 where tray.drafts.isEmpty {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
+        await waitUntil { !tray.drafts.isEmpty }
         #expect(tray.drafts.count == 1)
     }
 
     @Test func pasteIsEnabledForImagesInTheFloatingPanel() async throws {
         _ = NSApplication.shared
         let controller = FloatingPanelController(chats: makeChats(), openInWindow: { _ in })
-        controller.show()
         defer { controller.hide() }
-        try await Task.sleep(for: .milliseconds(150))
-        let root = try #require(controller.panel.contentView)
-        await expectPasteMenuAttachesImage(try #require(findView(PromptTextView.self, in: root)))
+        #expect(await showSettled(controller))
+        await expectPasteMenuAttachesImage(try #require(await editor(in: controller.panel)))
     }
 
     @Test func pasteIsEnabledForImagesInTheChatsWindow() async throws {
@@ -53,8 +49,6 @@ struct PasteShortcutTests {
         let controller = MainWindowController(chats: makeChats())
         controller.show()
         defer { controller.window.performClose(nil) }
-        try await Task.sleep(for: .milliseconds(200))
-        let root = try #require(controller.window.contentView)
-        await expectPasteMenuAttachesImage(try #require(findView(PromptTextView.self, in: root)))
+        await expectPasteMenuAttachesImage(try #require(await editor(in: controller.window)))
     }
 }

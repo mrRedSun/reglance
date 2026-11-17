@@ -38,3 +38,33 @@ func findView<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
     if let match = view as? T { return match }
     return view.subviews.lazy.compactMap { findView(type, in: $0) }.first
 }
+
+/// Polls until `condition` holds, for at most `timeout`; returns whether it held. Use it
+/// instead of a fixed sleep: AppKit and SwiftUI settle at their own pace, slower on CI.
+@discardableResult
+func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while !condition() {
+        if ContinuousClock.now >= deadline { return false }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return true
+}
+
+/// The window's prompt editor, once SwiftUI has put it in the window.
+func editor(in window: NSWindow) async -> PromptTextView? {
+    var found: PromptTextView?
+    await waitUntil {
+        found = window.contentView.flatMap { findView(PromptTextView.self, in: $0) }
+        return found?.window != nil
+    }
+    return found
+}
+
+/// Shows the floating bar and waits for its glass to be presented.
+func showSettled(_ controller: FloatingPanelController) async -> Bool {
+    controller.show()
+    let presented = await waitUntil { controller.isPresented }
+    controller.panel.contentView?.layoutSubtreeIfNeeded()
+    return presented
+}

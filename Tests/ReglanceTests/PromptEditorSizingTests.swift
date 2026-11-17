@@ -11,12 +11,12 @@ import Testing
     let controller = MainWindowController(chats: makeChats())
     controller.show()
     defer { controller.window.performClose(nil) }
-    try await Task.sleep(for: .milliseconds(200))
-    let root = try #require(controller.window.contentView)
-    let editor = try #require(findView(PromptTextView.self, in: root))
+    let editor = try #require(await editor(in: controller.window))
     let scroll = try #require(editor.enclosingScrollView)
+    // SwiftUI settles the field at its real width after probing narrower ones.
+    #expect(await waitUntil { scroll.frame.width > 300 })
     editor.insertText("Which dogs can't bark and why do they yodel", replacementRange: editor.selectedRange())
-    try await Task.sleep(for: .milliseconds(100))
+    controller.window.layoutIfNeeded()
     // SwiftUI measured the field at 40pt first; the text must still wrap at its real width.
     let container = editor.textContainer?.containerSize.width ?? 0
     #expect(container >= editor.frame.width - 2 * editor.textContainerInset.width - 1,

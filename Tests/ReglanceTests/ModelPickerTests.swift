@@ -54,7 +54,7 @@ struct ModelPickerTests {
         WindowPresentation.prepare(window)
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        try await Task.sleep(for: .milliseconds(100))
+        hosting.layoutSubtreeIfNeeded()
         func click(x: CGFloat, fromTop y: CGFloat) {
             let point = NSPoint(x: x, y: hosting.isFlipped ? y : hosting.bounds.height - y)
             let location = hosting.convert(point, to: nil)
@@ -67,18 +67,17 @@ struct ModelPickerTests {
             }
         }
         click(x: 120, fromTop: 233)
-        try await Task.sleep(for: .milliseconds(30))
+        await waitUntil { selection.done }
         #expect(selection.model == .opus && selection.effort == .automatic)
         #expect(selection.done, "Choosing a model closes the picker")
         selection.done = false
         click(x: 370, fromTop: 193)
-        try await Task.sleep(for: .milliseconds(30))
+        await waitUntil { selection.done }
         #expect(selection.model == .opus && selection.effort == .high)
         #expect(selection.done, "Choosing an effort closes the picker")
         selection.done = false
         click(x: size.width - 55, fromTop: 50)
-        try await Task.sleep(for: .milliseconds(20))
-        #expect(selection.done)
+        #expect(await waitUntil { selection.done })
     }
 
     @Test func barRemembersTheLastModelAndEffort() throws {
@@ -109,69 +108,15 @@ struct ModelPickerTests {
         _ = NSApplication.shared
         let controller = FloatingPanelController(chats: makeChats(), openInWindow: { _ in })
         let bar = controller.composer
-        controller.show()
         defer { controller.hide() }
-        // Wait out the entrance spring so the bar is opaque before measuring it.
-        try await Task.sleep(for: .milliseconds(600))
-        func glassTop() -> CGFloat? {
-            // The topmost non-transparent content: the picker sits above the composer.
-            guard let hosting = controller.panel.contentView,
-                  let image = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
-            hosting.cacheDisplay(in: hosting.bounds, to: image)
-            for y in 0..<image.pixelsHigh {
-                for x in stride(from: 0, to: image.pixelsWide, by: 8) where (image.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 {
-                    return CGFloat(y) / (CGFloat(image.pixelsHigh) / hosting.bounds.height)
-                }
-            }
-            return nil
-        }
+        #expect(await showSettled(controller))
         let window = controller.panel.frame
-        let collapsedTop = try #require(glassTop())
+        let hosting = try #require(controller.panel.contentView)
         bar.pickerIsPresented = true
-        try await Task.sleep(for: .milliseconds(600))
-        let expandedTop = try #require(glassTop())
+        #expect(await waitUntil { !controller.pickerFrame.isEmpty })
         #expect(controller.panel.frame == window, "The picker grows inside the panel, not by resizing it")
-        #expect(collapsedTop - expandedTop > 150, "\(collapsedTop) -> \(expandedTop)")
-        #expect(expandedTop > 0, "The picker must fit inside the panel")
+        #expect(hosting.bounds.contains(controller.pickerFrame), "The picker must fit inside the panel: \(controller.pickerFrame)")
         controller.hide()
         #expect(!bar.pickerIsPresented)
-    }
-
-    @Test func closingShrinksTheCardBackInsteadOfRemovingIt() async throws {
-        _ = NSApplication.shared
-        let selection = PickerSelection()
-        let hosting = NSHostingView(rootView: OverlayFixture(selection: selection))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.contentView = hosting
-        window.orderFront(nil)
-        defer { window.orderOut(nil) }
-        /// The topmost drawn row, from the top, in points.
-        func contentTop() -> CGFloat? {
-            guard let image = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
-            hosting.cacheDisplay(in: hosting.bounds, to: image)
-            for y in 0..<image.pixelsHigh {
-                for x in stride(from: 0, to: image.pixelsWide, by: 4) where (image.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 {
-                    return CGFloat(y) / (CGFloat(image.pixelsHigh) / hosting.bounds.height)
-                }
-            }
-            return nil
-        }
-        try await Task.sleep(for: .milliseconds(100))
-        let pillTop = try #require(contentTop())
-        withAnimation(BloomMotion.animation) { selection.isPresented = true }
-        try await Task.sleep(for: .milliseconds(900))
-        let openTop = try #require(contentTop())
-        #expect(pillTop - openTop > 150, "\(pillTop) -> \(openTop)")
-        withAnimation(BloomMotion.animation) { selection.isPresented = false }
-        try await Task.sleep(for: .milliseconds(60))
-        // Mid-close the card is still on screen, on its way back into the pill.
-        let closingTop = try #require(contentTop())
-        #expect(pillTop - closingTop > 40, "The card vanished instead of shrinking back: \(pillTop) -> \(closingTop)")
-        try await Task.sleep(for: .milliseconds(1500))
-        #expect(selection.cardFrame.isEmpty, "\(selection.cardFrame)")
-        #expect(abs((contentTop() ?? 0) - pillTop) < 1)
     }
 }

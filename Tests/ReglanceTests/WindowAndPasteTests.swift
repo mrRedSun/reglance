@@ -24,16 +24,13 @@ struct WindowAndPasteTests {
         defer { board.releaseGlobally() }
         let tray = AttachmentTray()
         #expect(AttachmentPasteboard.paste(into: tray, from: board))
-        for _ in 0..<100 where tray.drafts.isEmpty {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
+        await waitUntil { !tray.drafts.isEmpty }
         #expect(tray.drafts.count == 1)
         #expect(tray.drafts.first?.kind == .image)
     }
 
     @Test func floatingHostingViewDoesNotClipGlass() {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "window-test-\(UUID())")
         let chats = makeChats()
         let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
         #expect(controller.panel.contentView?.clipsToBounds == false)
@@ -43,11 +40,8 @@ struct WindowAndPasteTests {
         _ = NSApplication.shared
         let chats = makeChats()
         let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
-        controller.show()
         defer { controller.hide() }
-        // Wait out the entrance bloom, which scales the bar while it plays.
-        try? await Task.sleep(for: .milliseconds(700))
-        controller.panel.contentView?.layoutSubtreeIfNeeded()
+        #expect(await showSettled(controller))
         func hasDragRegion(_ view: NSView) -> Bool {
             (view is WindowDragView && view.bounds.width > 0 && view.bounds.height > 0)
                 || view.subviews.contains(where: hasDragRegion)
@@ -55,10 +49,7 @@ struct WindowAndPasteTests {
         #expect(controller.panel.contentView.map(hasDragRegion) == true)
         // Empty glass beside the text (the leading inset, mid-height) moves the window.
         let hosting = try #require(controller.panel.contentView)
-        func editor(_ view: NSView) -> PromptTextView? {
-            (view as? PromptTextView) ?? view.subviews.lazy.compactMap(editor).first
-        }
-        let text = try #require(editor(hosting))
+        let text = try #require(await editor(in: controller.panel))
         let textFrame = text.convert(text.bounds, to: hosting)
         let inset = NSPoint(x: textFrame.minX - 6, y: textFrame.midY)
         #expect(hosting.hitTest(hosting.convert(inset, to: hosting.superview)) is WindowDragView,
@@ -71,17 +62,12 @@ struct WindowAndPasteTests {
         let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
         controller.composer.chatID = chats.send("Plan a weekend trip to the mountains", model: .sonnet, to: nil)
         await chats.waitForReply(try #require(controller.composer.chatID))
-        controller.show()
         defer { controller.hide() }
-        try? await Task.sleep(for: .milliseconds(700))
+        #expect(await showSettled(controller))
         let hosting = try #require(controller.panel.contentView)
-        hosting.layoutSubtreeIfNeeded()
-        func dragView(_ view: NSView) -> WindowDragView? {
-            (view as? WindowDragView) ?? view.subviews.lazy.compactMap(dragView).first
-        }
         // The drag region backs the whole glass; the title starts 22pt in, centred in a
         // 26pt row 14pt below the top edge.
-        let region = try #require(dragView(hosting))
+        let region = try #require(findView(WindowDragView.self, in: hosting))
         let glass = region.convert(region.bounds, to: nil)
         let title = NSPoint(x: glass.minX + 40, y: glass.maxY - 27)
         let hit = hosting.hitTest(hosting.superview!.convert(title, from: nil))
@@ -99,9 +85,7 @@ struct WindowAndPasteTests {
         editor.pasteAttachment = { AttachmentPasteboard.paste(into: tray, from: $0) }
         editor.paste(from: board)
         #expect(tray.isPreparing)
-        for _ in 0..<100 where tray.isPreparing {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
+        await waitUntil { !tray.isPreparing }
         #expect(tray.drafts.count == 1)
         #expect(editor.string == "Question")
         board.clearContents()
@@ -156,7 +140,8 @@ struct WindowAndPasteTests {
         let tray = AttachmentTray()
         _ = AttachmentPasteboard.paste(into: tray, from: board)
         _ = tray.take()
-        try? await Task.sleep(for: .milliseconds(100))
+        // The image keeps preparing in the background; its result must not come back.
+        try? await Task.sleep(for: .milliseconds(300))
         #expect(tray.drafts.isEmpty)
         #expect(!tray.isPreparing)
     }
@@ -167,15 +152,15 @@ struct WindowAndPasteTests {
         controller.show()
         let window = controller.window
         defer { window.performClose(nil) }
-        try await Task.sleep(for: .milliseconds(100))
-        func findSplit(in view: NSView) -> NSSplitView? {
-            if let split = view as? NSSplitView { return split }
-            return view.subviews.lazy.compactMap { findSplit(in: $0) }.first
-        }
         let root = try #require(window.contentView)
-        let split = try #require(findSplit(in: root))
-        let nativeController = try #require(split.delegate as? NSSplitViewController)
-        let sidebar = try #require(nativeController.splitViewItems.first { $0.behavior == .sidebar })
+        var found: NSSplitViewItem?
+        await waitUntil {
+            window.layoutIfNeeded()
+            let controller = findView(NSSplitView.self, in: root)?.delegate as? NSSplitViewController
+            found = controller?.splitViewItems.first { $0.behavior == .sidebar }
+            return (found?.viewController.view.frame.width ?? 0) >= SidebarLayout.minimumWidth
+        }
+        let sidebar = try #require(found)
         #expect(!sidebar.canCollapse, "The sidebar can't be hidden")
         #expect(window.tabbingMode == .disallowed, "No window tabs, so no Show Tab Bar or New Tab button")
         #expect(!sidebar.isCollapsed)
@@ -187,8 +172,7 @@ struct WindowAndPasteTests {
 
     @Test func toolbarTitleIsCenteredAndClearOfNewChat() async throws {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "toolbar-test-\(UUID())")
-        let store = ChatStore(directory: directory)
+        let store = ChatStore(directory: testDirectory("toolbar"))
         var chat = Chat(firstMessage: "A saved conversation", model: .sonnet)
         chat.title = String(repeating: "A long conversation title that needs truncation. ", count: 12)
         try store.save(chat)
@@ -201,8 +185,8 @@ struct WindowAndPasteTests {
             window.setFrame(originalWindowFrame, display: true)
             window.performClose(nil)
         }
-        try await Task.sleep(for: .milliseconds(120))
         let toolbar = try #require(window.toolbar)
+        #expect(await waitUntil { toolbar.items.contains { $0.itemIdentifier.rawValue == "newChat" && $0.view?.window != nil } })
         func buttonFrames() -> [String: NSRect] {
             Dictionary(toolbar.items.compactMap { item in
                 let role: String
@@ -237,33 +221,30 @@ struct WindowAndPasteTests {
                 #expect(frame.minX >= zoom.convert(zoom.bounds, to: nil).maxX + 12)
             }
         }
-        func expectStationaryToolbar() async throws {
+        func expectStationaryToolbar() {
+            window.layoutIfNeeded()
             #expect(buttonFrames().count == 1)
             expectCenteredTitleAndClearance()
         }
-        try await expectStationaryToolbar()
+        expectStationaryToolbar()
 
         controller.show(chatID: chat.id)
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(titleView.stringValue == chat.title)
+        #expect(await waitUntil { titleView.stringValue == chat.title })
         #expect(titleView.toolTip == chat.title)
         #expect(titleView.lineBreakMode == .byTruncatingMiddle)
         #expect(titleView.maximumNumberOfLines == 1)
         #expect(titleView.fittingSize.width > titleView.bounds.width, "Exercise actual truncation, not just a short label")
         for width: CGFloat in [900, 1120] {
             window.setContentSize(NSSize(width: width, height: 620))
-            try await Task.sleep(for: .milliseconds(80))
-            try await expectStationaryToolbar()
+            expectStationaryToolbar()
         }
         chats.rename(chat.id, to: "Renamed conversation")
-        try await Task.sleep(for: .milliseconds(80))
-        #expect(titleView.stringValue == "Renamed conversation")
-        expectCenteredTitleAndClearance()
+        #expect(await waitUntil { titleView.stringValue == "Renamed conversation" })
+        expectStationaryToolbar()
         window.performClose(nil)
         controller.newChat()
-        try await Task.sleep(for: .milliseconds(80))
-        #expect(titleView.stringValue == "New Chat")
-        expectCenteredTitleAndClearance()
+        #expect(await waitUntil { titleView.stringValue == "New Chat" })
+        expectStationaryToolbar()
     }
 
     @Test func barEntranceKeepsItsWindowStableAndCancelsStaleShows() async throws {
@@ -271,17 +252,13 @@ struct WindowAndPasteTests {
         let controller = FloatingPanelController(chats: makeChats(), openInWindow: { _ in })
         controller.show()
         controller.hide() // Hide before the queued entrance starts.
-        try await Task.sleep(for: .milliseconds(30))
+        await Task.yield() // Let the queued entrance run; it must see it's stale.
         #expect(!controller.isPresented && !controller.isVisible)
         controller.show()
         defer { controller.hide() }
-        try await Task.sleep(for: .milliseconds(60))
-        #expect(controller.isPresented)
         let frame = controller.panel.frame
-        for _ in 0..<22 {
-            try await Task.sleep(for: .milliseconds(16))
-            #expect(controller.panel.frame == frame, "The spring must not resize or move the window each frame")
-        }
+        #expect(await waitUntil { controller.isPresented })
+        #expect(controller.panel.frame == frame, "Presenting grows the glass inside the window, not the window")
         controller.show() // Refocus, not another entrance.
         #expect(controller.isPresented)
         controller.hide()
