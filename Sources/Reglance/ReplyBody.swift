@@ -117,12 +117,17 @@ private struct PlaceholderCard: View {
 
 struct PillButton: View {
     let title: String
+    /// Sizes the pill when its title changes, so the row doesn't shift.
+    var widestTitle: String?
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Text(title)
+            ZStack {
+                if let widestTitle { Text(widestTitle).hidden() }
+                Text(title)
+            }
                 .font(.system(size: 12, weight: .semibold))
                 .padding(.horizontal, 11)
                 .frame(height: 26)
@@ -142,7 +147,7 @@ private struct ChartCard: View {
 
     var body: some View {
         WidgetCard(kind: "Chart", title: spec.title) {
-            HeaderButton(systemName: "doc.on.doc", help: "Copy as image", size: 24, action: copyImage)
+            CopyButton(help: "Copy as image") { renderImage().map { [$0] } }
         } content: {
             ChartBody(spec: spec)
                 .frame(height: spec.type == .pie ? 190 : 170)
@@ -150,7 +155,7 @@ private struct ChartCard: View {
         }
     }
 
-    private func copyImage() {
+    private func renderImage() -> NSImage? {
         let image = VStack(alignment: .leading, spacing: 10) {
             Text(spec.title).font(.system(size: 14, weight: .semibold))
             ChartBody(spec: spec).frame(width: 520, height: spec.type == .pie ? 220 : 200)
@@ -160,9 +165,7 @@ private struct ChartCard: View {
         .environment(\.colorScheme, colorScheme)
         let renderer = ImageRenderer(content: image)
         renderer.scale = 2
-        guard let nsImage = renderer.nsImage else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([nsImage])
+        return renderer.nsImage
     }
 }
 
@@ -307,10 +310,7 @@ private struct DocumentCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                PillButton(title: "Copy") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                }
+                CopyButton(style: .pill) { [text as NSString] }
                 PillButton(title: "Save…", action: save)
             }
             .padding(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 8))
