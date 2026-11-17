@@ -8,17 +8,12 @@ import SwiftUI
 /// the person turns it on with the composer's Agent button or ⌘⇧A, which starts a new
 /// agent chat.
 enum AgentMode {
-    /// Turning agent mode on or off adds or removes the folder row, so the composer
-    /// changes height on the same spring as the rest of the layout.
-    static let toggleAnimation = Animation.spring(response: 0.40, dampingFraction: 0.82)
-
     static let bypassKey = "agentBypassPermissions"
     private static let directoryKey = "agentDirectory"
     /// Predates auto mode, when every agent chat bypassed permissions.
     private static let bypassAcknowledgedKey = "agentModeWarningAcknowledged"
     private static let autoAcknowledgedKey = "agentAutoModeAcknowledged"
-    /// Demo mode keeps its choices out of the real preferences.
-    static let defaults = DemoMode.isEnabled ? UserDefaults(suiteName: "app.reglance.demo")! : .standard
+    static var defaults: UserDefaults { Preferences.store }
 
     /// How new agent chats approve actions: auto mode unless bypassing is on in Settings.
     static var permissions: AgentPermissions {

@@ -8,14 +8,12 @@ import ChatCore
 struct NewChatAfterTests {
     private final class Clock { var now = Date(timeIntervalSince1970: 0) }
 
-    private func makeController(limit: TimeInterval, clock: Clock) -> (FloatingPanelController, FloatingBarModel) {
+    private func makeController(limit: TimeInterval, clock: Clock) -> (FloatingPanelController, ComposerSession) {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "new-chat-after-test-\(UUID())")
-        let bar = FloatingBarModel()
-        let controller = FloatingPanelController(chats: ChatController(store: ChatStore(directory: directory)),
-                                                 model: bar, newChatAfter: { limit }, now: { clock.now },
+        let controller = FloatingPanelController(chats: makeChats(),
+                                                 newChatAfter: { limit }, now: { clock.now },
                                                  openInWindow: { _ in })
-        return (controller, bar)
+        return (controller, controller.composer)
     }
 
     @Test func reopeningAfterTheLimitStartsANewChatAndKeepsTheDraft() {

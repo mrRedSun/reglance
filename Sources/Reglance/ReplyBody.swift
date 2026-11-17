@@ -115,30 +115,6 @@ private struct PlaceholderCard: View {
     }
 }
 
-struct PillButton: View {
-    let title: String
-    /// Sizes the pill when its title changes, so the row doesn't shift.
-    var widestTitle: String?
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                if let widestTitle { Text(widestTitle).hidden() }
-                Text(title)
-            }
-                .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 11)
-                .frame(height: 26)
-                .background(Capsule().fill(.primary.opacity(hovering ? 0.16 : 0.1)))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
-
 // MARK: - Chart
 
 private struct ChartCard: View {

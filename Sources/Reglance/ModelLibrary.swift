@@ -14,7 +14,7 @@ final class ModelLibrary {
     static var shared = DemoMode.isEnabled
         ? ModelLibrary(fixed: [.claude: DemoContent.models, .codex: DemoContent.codexModels,
                                .opencode: DemoContent.openCodeModels],
-                       defaults: UserDefaults(suiteName: "app.reglance.demo") ?? .standard)
+                       defaults: Preferences.store)
         : ModelLibrary(cacheURL: AppPaths.root.appending(path: "Models.json"))
 
     private(set) var options: [Backend: [ModelOption]]

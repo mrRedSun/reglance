@@ -4,7 +4,6 @@ import ChatCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let chats = AppDelegate.makeChats()
-    private let bar = FloatingBarModel()
     private lazy var mainWindow = MainWindowController(chats: chats)
     private lazy var settingsWindow = SettingsWindowController(hotKey: hotKeySettings)
     private var panel: FloatingPanelController!
@@ -17,13 +16,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = makeMainMenu()
         OptionKey.shared.start()
         statusItem = makeStatusItem()
-        panel = FloatingPanelController(chats: chats, model: bar) { [weak self] chatID in
+        panel = FloatingPanelController(chats: chats) { [weak self] chatID in
             self?.panel.hide()
             self?.mainWindow.show(chatID: chatID)
         }
         hotKeySettings = HotKeySettings { [weak self] combo in self?.registerHotKey(combo) ?? false }
         if let scene = DemoScene.fromEnvironment() {
-            scene.run(chats: chats, panel: panel, bar: bar, mainWindow: mainWindow)
+            scene.run(chats: chats, panel: panel, bar: panel.composer, mainWindow: mainWindow)
         } else {
             mainWindow.show()
         }

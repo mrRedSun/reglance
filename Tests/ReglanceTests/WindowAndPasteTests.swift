@@ -34,15 +34,14 @@ struct WindowAndPasteTests {
     @Test func floatingHostingViewDoesNotClipGlass() {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "window-test-\(UUID())")
-        let chats = ChatController(store: ChatStore(directory: directory))
+        let chats = makeChats()
         let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
         #expect(controller.panel.contentView?.clipsToBounds == false)
     }
 
     @Test func collapsedPanelHasAnActualDragRegion() async throws {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "drag-test-\(UUID())")
-        let chats = ChatController(store: ChatStore(directory: directory))
+        let chats = makeChats()
         let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
         controller.show()
         defer { controller.hide() }
@@ -68,13 +67,10 @@ struct WindowAndPasteTests {
 
     @Test func expandedPanelDragsByItsTitle() async throws {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "title-drag-test-\(UUID())")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let chats = ChatController(store: ChatStore(directory: directory), client: TitleDragTestClient())
-        let bar = FloatingBarModel()
-        bar.chatID = chats.send("Plan a weekend trip to the mountains", model: .sonnet, to: nil)
-        await chats.waitForReply(try #require(bar.chatID))
-        let controller = FloatingPanelController(chats: chats, model: bar, openInWindow: { _ in })
+        let chats = makeChats(client: TitleDragTestClient())
+        let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
+        controller.composer.chatID = chats.send("Plan a weekend trip to the mountains", model: .sonnet, to: nil)
+        await chats.waitForReply(try #require(controller.composer.chatID))
         controller.show()
         defer { controller.hide() }
         try? await Task.sleep(for: .milliseconds(700))
@@ -140,8 +136,7 @@ struct WindowAndPasteTests {
 
     @Test func nativeChatsWindowHasDockPresenceAndCanCloseAndReopen() {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "main-window-test-\(UUID())")
-        let controller = MainWindowController(chats: ChatController(store: ChatStore(directory: directory)))
+        let controller = MainWindowController(chats: makeChats())
         controller.show()
         #expect(NSApp.activationPolicy() == .regular)
         #expect(controller.isVisible)
@@ -168,8 +163,7 @@ struct WindowAndPasteTests {
 
     @Test func sidebarIsAlwaysShownAtAReadableWidth() async throws {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "sidebar-layout-test-\(UUID())")
-        let controller = MainWindowController(chats: ChatController(store: ChatStore(directory: directory)))
+        let controller = MainWindowController(chats: makeChats())
         controller.show()
         let window = controller.window
         defer { window.performClose(nil) }
@@ -274,27 +268,24 @@ struct WindowAndPasteTests {
 
     @Test func barEntranceKeepsItsWindowStableAndCancelsStaleShows() async throws {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "bar-motion-test-\(UUID())")
-        let bar = FloatingBarModel()
-        let controller = FloatingPanelController(chats: ChatController(store: ChatStore(directory: directory)),
-                                                 model: bar, openInWindow: { _ in })
+        let controller = FloatingPanelController(chats: makeChats(), openInWindow: { _ in })
         controller.show()
         controller.hide() // Hide before the queued entrance starts.
         try await Task.sleep(for: .milliseconds(30))
-        #expect(!bar.isPresented && !controller.isVisible)
+        #expect(!controller.isPresented && !controller.isVisible)
         controller.show()
         defer { controller.hide() }
         try await Task.sleep(for: .milliseconds(60))
-        #expect(bar.isPresented)
+        #expect(controller.isPresented)
         let frame = controller.panel.frame
         for _ in 0..<22 {
             try await Task.sleep(for: .milliseconds(16))
             #expect(controller.panel.frame == frame, "The spring must not resize or move the window each frame")
         }
         controller.show() // Refocus, not another entrance.
-        #expect(bar.isPresented)
+        #expect(controller.isPresented)
         controller.hide()
-        #expect(!bar.isPresented)
+        #expect(!controller.isPresented)
     }
 
     @Test func motionRespectsReduceMotion() {

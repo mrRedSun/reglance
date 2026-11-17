@@ -8,16 +8,12 @@ import Testing
 /// the text wrapping at a probe width (it wrapped one word per line in the chats window).
 @Test(.headlessWindows) func chatsWindowTextUsesTheFieldWidth() async throws {
     _ = NSApplication.shared
-    let directory = FileManager.default.temporaryDirectory.appending(path: "editor-width-test-\(UUID())")
-    let controller = MainWindowController(chats: ChatController(store: ChatStore(directory: directory)))
+    let controller = MainWindowController(chats: makeChats())
     controller.show()
     defer { controller.window.performClose(nil) }
     try await Task.sleep(for: .milliseconds(200))
-    func findEditor(_ view: NSView) -> PromptTextView? {
-        (view as? PromptTextView) ?? view.subviews.lazy.compactMap(findEditor).first
-    }
     let root = try #require(controller.window.contentView)
-    let editor = try #require(findEditor(root))
+    let editor = try #require(findView(PromptTextView.self, in: root))
     let scroll = try #require(editor.enclosingScrollView)
     editor.insertText("Which dogs can't bark and why do they yodel", replacementRange: editor.selectedRange())
     try await Task.sleep(for: .milliseconds(100))

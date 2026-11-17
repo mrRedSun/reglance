@@ -17,19 +17,13 @@ private struct TransitionTestClient: ChatStreamingClient {
 @MainActor
 @Test(.headlessWindows) func sendingKeepsTheSameNativeComposerAndBottomAnchor() async throws {
     _ = NSApplication.shared
-    let directory = FileManager.default.temporaryDirectory.appending(path: "send-transition-test-\(UUID())")
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let chats = ChatController(store: ChatStore(directory: directory), client: TransitionTestClient())
-    let bar = FloatingBarModel()
-    let controller = FloatingPanelController(chats: chats, model: bar, openInWindow: { _ in })
+    let chats = makeChats(client: TransitionTestClient())
+    let controller = FloatingPanelController(chats: chats, openInWindow: { _ in })
+    let bar = controller.composer
     controller.show()
     defer { controller.hide() }
-    func findEditor(_ view: NSView) -> PromptTextView? {
-        if let editor = view as? PromptTextView { return editor }
-        return view.subviews.lazy.compactMap(findEditor).first
-    }
     let root = try #require(controller.panel.contentView)
-    let editor = try #require(findEditor(root))
+    let editor = try #require(findView(PromptTextView.self, in: root))
     // Wait out the entrance bloom so it doesn't read as the composer moving: until the
     // editor starts rising (that can take a few hundred ms in the full suite), then until
     // it holds still for 100ms. Fixed waits were flaky on a busy machine.
@@ -59,7 +53,7 @@ private struct TransitionTestClient: ChatStreamingClient {
         positions.append(editor.convert(editor.bounds, to: nil).minY)
     }
     #expect(positions.allSatisfy { abs($0 - editorBottom) < 12 }, "Composer moved from \(editorBottom): \(positions)")
-    let afterSend = try #require(findEditor(root))
+    let afterSend = try #require(findView(PromptTextView.self, in: root))
     #expect(afterSend === editor, "Sending must not destroy and replace the editor/glass hierarchy")
     #expect(chats.chat(bar.chatID)?.messages.last?.text == "Hello.")
 }

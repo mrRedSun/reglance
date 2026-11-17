@@ -9,9 +9,6 @@ import Testing
 @MainActor
 @Suite(.serialized, .headlessWindows)
 struct FileDropTests {
-    private func findEditor(_ view: NSView) -> PromptTextView? {
-        (view as? PromptTextView) ?? view.subviews.lazy.compactMap(findEditor).first
-    }
 
     private func expectDropAttachesFile(_ editor: PromptTextView) async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "drop-\(UUID()).txt")
@@ -37,24 +34,23 @@ struct FileDropTests {
     @Test func droppingAFileOnTheFloatingPanelAttachesIt() async throws {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "drop-panel-test-\(UUID())")
-        let controller = FloatingPanelController(chats: ChatController(store: ChatStore(directory: directory)),
+        let controller = FloatingPanelController(chats: makeChats(),
                                                  openInWindow: { _ in })
         controller.show()
         defer { controller.hide() }
         try await Task.sleep(for: .milliseconds(150))
         let root = try #require(controller.panel.contentView)
-        try await expectDropAttachesFile(try #require(findEditor(root)))
+        try await expectDropAttachesFile(try #require(findView(PromptTextView.self, in: root)))
     }
 
     @Test func droppingAFileOnTheChatsWindowAttachesIt() async throws {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "drop-main-test-\(UUID())")
-        let controller = MainWindowController(chats: ChatController(store: ChatStore(directory: directory)))
+        let controller = MainWindowController(chats: makeChats())
         controller.show()
         defer { controller.window.performClose(nil) }
         try await Task.sleep(for: .milliseconds(200))
         let root = try #require(controller.window.contentView)
-        try await expectDropAttachesFile(try #require(findEditor(root)))
+        try await expectDropAttachesFile(try #require(findView(PromptTextView.self, in: root)))
     }
 }
 

@@ -140,9 +140,9 @@ struct SettingsPane<Content: View>: View {
 private struct GeneralSettings: View {
     let settings: LoginSettings
     let hotKey: HotKeySettings
-    @AppStorage(NewChatAfter.defaultsKey) private var newChatAfter = NewChatAfter.defaultValue
+    @AppStorage(NewChatAfter.defaultsKey, store: Preferences.store) private var newChatAfter = NewChatAfter.defaultValue
     @AppStorage(SystemPrompt.preferencesKey) private var preferences = ""
-    @AppStorage(PlayfulPrompts.defaultsKey) private var playfulPrompts = false
+    @AppStorage(PlayfulPrompts.defaultsKey, store: Preferences.store) private var playfulPrompts = false
 
     var body: some View {
         SettingsPane {

@@ -24,85 +24,16 @@ final class FloatingPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// State of the floating bar that isn't part of a chat.
+/// Whether the floating bar's glass is shown, for the open and close bloom.
 @Observable
-final class FloatingBarModel {
-    var text = ""
-    let attachments = AttachmentTray()
-    var model: ChatModel { didSet { lastChoice.model = model } }
-    var effort: Effort { didSet { lastChoice.effort = effort } }
-    @ObservationIgnored private var lastChoice: LastModelChoice
-    /// The chat shown under the bar; nil means the next send starts a new chat.
-    var chatID: UUID?
-    /// Agent mode for the next new chat: the folder it runs in. Off for every new chat.
-    /// Its permissions come from Settings when the chat starts (`AgentMode.permissions`).
-    var agentDirectory: URL?
-    var focusToken = 0
+final class FloatingPresentation {
     var isPresented = false
-    var pickerIsPresented = false
-
-    init(lastChoice: LastModelChoice = LastModelChoice()) {
-        self.lastChoice = lastChoice
-        model = ModelLibrary.shared.usable(lastChoice.model)
-        effort = lastChoice.effort
-    }
-
-    /// Picks up a choice made in the chats window since the bar last opened.
-    func adoptLastChoice() {
-        model = ModelLibrary.shared.usable(lastChoice.model)
-        effort = lastChoice.effort
-    }
-
-    /// Sends the draft to the open chat, or starts one. Callers choose the animation.
-    func send(using chats: ChatController) {
-        chatID = chats.send(text, attachments: attachments.take(), model: model, effort: effort,
-                            agentDirectory: agentDirectory, agentPermissions: AgentMode.permissions, to: chatID)
-        text = ""
-    }
-}
-
-/// The model and effort last chosen in either composer; new chats start with them.
-struct LastModelChoice {
-    private static let modelKey = "lastModel"
-    /// Missing before Codex and OpenCode: a saved model without it is a Claude model.
-    private static let backendKey = "lastModelBackend"
-    private static let effortKey = "lastEffort"
-    var defaults = AgentMode.defaults
-
-    var model: ChatModel {
-        get {
-            guard let id = defaults.string(forKey: Self.modelKey) else { return .sonnet }
-            let backend = defaults.string(forKey: Self.backendKey).flatMap(Backend.init(rawValue:)) ?? .claude
-            return ChatModel(backend: backend, id: id)
-        }
-        nonmutating set {
-            defaults.set(newValue.id, forKey: Self.modelKey)
-            defaults.set(newValue.backend.rawValue, forKey: Self.backendKey)
-        }
-    }
-
-    var effort: Effort {
-        get { defaults.string(forKey: Self.effortKey).flatMap(Effort.init(rawValue:)) ?? .automatic }
-        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.effortKey) }
-    }
-}
-
-/// How long the bar may stay hidden before it reopens on a new chat. Zero means never.
-enum NewChatAfter {
-    static let defaultsKey = "newChatAfterSeconds"
-    static let defaultValue: TimeInterval = 5 * 60
-    static let options: [(title: String, seconds: TimeInterval)] = [
-        ("1 minute", 60), ("5 minutes", 5 * 60), ("15 minutes", 15 * 60), ("1 hour", 60 * 60), ("Never", 0),
-    ]
-
-    static func current(in defaults: UserDefaults = .standard) -> TimeInterval {
-        defaults.object(forKey: defaultsKey) as? TimeInterval ?? defaultValue
-    }
 }
 
 final class FloatingPanelController {
     let panel = FloatingPanel()
-    private let model: FloatingBarModel
+    let composer: ComposerSession
+    private let presentation = FloatingPresentation()
     private let chats: ChatController
     private let newChatAfter: () -> TimeInterval
     private let now: () -> Date
@@ -128,16 +59,17 @@ final class FloatingPanelController {
     /// Width of the bar and the expanded panel (the design's 560pt).
     static let contentWidth: CGFloat = 560
 
-    init(chats: ChatController, model: FloatingBarModel = FloatingBarModel(),
+    init(chats: ChatController, composer: ComposerSession? = nil,
          newChatAfter: @escaping () -> TimeInterval = { NewChatAfter.current() },
          now: @escaping () -> Date = Date.init,
          openInWindow: @escaping (UUID) -> Void) {
         self.chats = chats
-        self.model = model
+        let composer = composer ?? ComposerSession(chats: chats)
+        self.composer = composer
         self.newChatAfter = newChatAfter
         self.now = now
         let root = FloatingRootView(
-            chats: chats, bar: model,
+            bar: composer, presentation: presentation,
             onGlassFrame: { [weak self] in
                 self?.glassFrame = $0
                 self?.updateMousePassthrough()
@@ -147,9 +79,7 @@ final class FloatingPanelController {
                 self?.updateMousePassthrough()
             },
             openInWindow: openInWindow,
-            close: { [weak self] in self?.hide() },
-            toggleAgent: { [weak self] in self?.toggleAgentMode() },
-            chooseAgentDirectory: { [weak self] in self?.chooseAgentDirectory() }
+            close: { [weak self] in self?.hide() }
         )
         let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = []   // fixed frame, see `windowHeight`
@@ -163,74 +93,40 @@ final class FloatingPanelController {
                 return event
             },
         ].compactMap { $0 }
+        // A non-activating panel doesn't get the main menu's key equivalents, so its
+        // shortcuts are handled here, calling the same methods as the buttons.
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.panel else { return event }
-            if event.keyCode == 53 { // Esc dismisses the accessory before the panel.
-                if self.model.pickerIsPresented {
-                    withAnimation(.easeOut(duration: 0.15)) { self.model.pickerIsPresented = false }
-                } else {
-                    self.hide()
-                }
-                return nil
-            }
-            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
-                switch event.charactersIgnoringModifiers?.lowercased() {
-                case "n":
-                    self.model.pickerIsPresented = false
-                    self.model.chatID = nil
-                    self.model.agentDirectory = nil
-                    self.model.text = ""
-                    _ = self.model.attachments.take()
-                    self.model.focusToken += 1
-                    return nil
-                case "o":
-                    if let id = self.model.chatID { openInWindow(id) }
-                    return nil
-                case "w":
-                    self.hide()
-                    return nil
-                default: break
-                }
-            }
-            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command, .shift],
-               event.charactersIgnoringModifiers?.lowercased() == "a" {
-                self.toggleAgentMode()
-                return nil
-            }
-            return event
+            return self.handleShortcut(event, openInWindow: openInWindow) ? nil : event
         }
+        // An agent-mode alert or folder panel takes key focus from the panel; give it back.
+        composer.afterModal = { [weak self] in self?.refocus() }
     }
 
-    /// A chat keeps the mode it was created with, so switching while one is open starts
-    /// a new chat. The draft stays in the composer.
-    func toggleAgentMode() {
-        model.pickerIsPresented = false
-        let isOn = chats.chat(model.chatID)?.isAgent ?? (model.agentDirectory != nil)
-        if isOn {
-            withAnimation(AgentMode.toggleAnimation) {
-                model.agentDirectory = nil
-                model.chatID = nil
-            }
-        } else if AgentMode.confirmEnabling() {
-            withAnimation(AgentMode.toggleAnimation) {
-                model.agentDirectory = AgentMode.directory
-                model.chatID = nil
-            }
+    /// Esc closes the picker, then the panel; ⌘N, ⌘O, ⌘W and ⌘⇧A. True when handled.
+    private func handleShortcut(_ event: NSEvent, openInWindow: (UUID) -> Void) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if event.keyCode == 53 {
+            if composer.pickerIsPresented { composer.setPickerPresented(false) } else { hide() }
+            return true
         }
-        refocus()
+        switch (modifiers, key) {
+        case (.command, "n"): withAnimation(ComposerMotion.layout()) { composer.startNewChat() }
+        case (.command, "o"): if let id = composer.chatID { openInWindow(id) }
+        case (.command, "w"): hide()
+        case ([.command, .shift], "a"): composer.toggleAgentMode()
+        default: return false
+        }
+        return true
     }
 
-    func chooseAgentDirectory() {
-        if let directory = AgentMode.chooseDirectory() { model.agentDirectory = directory }
-        refocus()
-    }
-
-    /// A modal alert or open panel takes key focus from the panel.
     private func refocus() {
         guard panel.isVisible else { return }
         panel.makeKeyAndOrderFront(nil)
-        model.focusToken += 1
     }
+
+    var isPresented: Bool { presentation.isPresented }
 
     isolated deinit {
         if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
@@ -248,14 +144,14 @@ final class FloatingPanelController {
         Task { await ModelLibrary.shared.refresh() }
         if isEntering {
             startNewChatIfIdle()
-            if model.chatID == nil { model.adoptLastChoice() }
+            if composer.chatID == nil { composer.adoptLastChoice() }
         }
         // First show, or the mouse moved to another display: place it there. Otherwise keep
         // the spot the user dragged it to.
         if !hasPosition || panel.screen?.frame != mouseScreen?.frame { positionOnActiveScreen() }
         WindowPresentation.prepare(panel)
         panel.makeKeyAndOrderFront(nil)
-        model.focusToken += 1
+        composer.focusToken += 1
         updateMousePassthrough()
         guard isEntering else { return } // Refocusing an open panel must not restart its spring.
         panel.contentView?.layoutSubtreeIfNeeded()
@@ -265,7 +161,7 @@ final class FloatingPanelController {
         // Let the hidden starting state reach the compositor before expanding the glass.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.panel.isVisible, self.presentationGeneration == generation else { return }
-            self.model.isPresented = true
+            self.presentation.isPresented = true
         }
     }
 
@@ -276,8 +172,8 @@ final class FloatingPanelController {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            model.isPresented = false
-            model.pickerIsPresented = false
+            presentation.isPresented = false
+            composer.pickerIsPresented = false
         }
     }
 
@@ -286,12 +182,12 @@ final class FloatingPanelController {
     private func startNewChatIfIdle() {
         let limit = newChatAfter()
         guard limit > 0, let hiddenAt, now().timeIntervalSince(hiddenAt) >= limit,
-              let id = model.chatID, !chats.isStreaming(id) else { return }
+              let id = composer.chatID, !chats.isStreaming(id) else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            model.chatID = nil
-            model.agentDirectory = nil
+            composer.chatID = nil
+            composer.agentDirectory = nil
         }
     }
 
@@ -325,44 +221,33 @@ final class FloatingPanelController {
 }
 
 private struct FloatingRootView: View {
-    let chats: ChatController
-    @Bindable var bar: FloatingBarModel
+    @Bindable var bar: ComposerSession
+    let presentation: FloatingPresentation
     let onGlassFrame: (CGRect) -> Void
     let onPickerFrame: (CGRect) -> Void
     let openInWindow: (UUID) -> Void
     let close: () -> Void
-    let toggleAgent: () -> Void
-    let chooseAgentDirectory: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Observed so a composer already in agent mode recolours when Settings changes.
     @AppStorage(AgentMode.bypassKey, store: AgentMode.defaults) private var bypassesPermissions = false
 
     var body: some View {
-        let chat = chats.chat(bar.chatID)
-        let isStreaming = chats.isStreaming(bar.chatID)
-        let scale = FloatingPanelMotion.scale(isPresented: bar.isPresented, reduceMotion: reduceMotion)
+        let chat = bar.chat
+        let isPresented = presentation.isPresented
+        let scale = FloatingPanelMotion.scale(isPresented: isPresented, reduceMotion: reduceMotion)
 
         // One container so the bar and panel glass render and blend as a single material.
         GlassEffectContainer {
             VStack(alignment: .trailing, spacing: 10) {
                 ReplyView(
-                    chat: chat, isStreaming: isStreaming,
-                    canRegenerate: chat.map { chats.canRegenerate($0.id) } ?? false,
-                    onNewChat: {
-                        withAnimation(reduceMotion ? nil : .spring(response: 0.40, dampingFraction: 0.82)) {
-                            bar.pickerIsPresented = false
-                            bar.chatID = nil
-                            bar.agentDirectory = nil
-                            bar.text = ""
-                            _ = bar.attachments.take()
-                            bar.focusToken += 1
-                        }
-                    },
+                    chat: chat, isStreaming: bar.isStreaming, canRegenerate: bar.canRegenerate,
+                    onNewChat: { withAnimation(ComposerMotion.layout(reduceMotion: reduceMotion)) { bar.startNewChat() } },
                     onOpenInWindow: { if let chat { openInWindow(chat.id) } },
                     onClose: close,
-                    onRegenerate: { if let chat { chats.regenerate(chat.id, model: bar.model, effort: bar.effort) } }
+                    onRegenerate: bar.regenerate
                 ) {
-                    promptBar(chat: chat, isStreaming: isStreaming)
+                    PromptBarView(session: bar, docked: chat != nil, embedded: true,
+                                  sendAnimation: ComposerMotion.layout(reduceMotion: reduceMotion))
                 }
                 .agentGlowAnchor()
             }
@@ -373,46 +258,19 @@ private struct FloatingRootView: View {
             // root spans the panel so the picker card has room above the bar.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
-        .agentGlow(isOn: chat.map(\.isAgent) ?? (bar.agentDirectory != nil),
+        .agentGlow(isOn: bar.shownAgentDirectory != nil,
                    color: (chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto)).color,
                    cornerRadius: chat == nil ? ComposerShape.cornerRadius : ComposerShape.panelCornerRadius)
         .modelPickerOverlay(isPresented: bar.pickerIsPresented, model: $bar.model, effort: $bar.effort,
-                            backend: PromptBarView.lockedBackend(chat: chat, agentDirectory: bar.agentDirectory),
-                            reduceMotion: reduceMotion,
-                            onDone: {
-                                withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.80)) {
-                                    bar.pickerIsPresented = false
-                                }
-                            },
+                            backend: bar.lockedBackend, reduceMotion: reduceMotion,
+                            onDone: { bar.setPickerPresented(false) },
                             onFrame: onPickerFrame)
         // Animate only presentation, never the NSWindow frame or the editor's layout.
         .scaleEffect(x: scale.width, y: scale.height, anchor: .bottom)
-        .blur(radius: FloatingPanelMotion.blur(isPresented: bar.isPresented, reduceMotion: reduceMotion))
-        .opacity(bar.isPresented ? 1 : 0)
-        .animation(FloatingPanelMotion.animation(reduceMotion: reduceMotion), value: bar.isPresented)
+        .blur(radius: FloatingPanelMotion.blur(isPresented: isPresented, reduceMotion: reduceMotion))
+        .opacity(isPresented ? 1 : 0)
+        .animation(FloatingPanelMotion.animation(reduceMotion: reduceMotion), value: isPresented)
         .attachmentDrop(bar.attachments)
         .padding(FloatingPanelController.margin)
     }
-
-    private func promptBar(chat: Chat?, isStreaming: Bool) -> some View {
-        PromptBarView(
-            text: $bar.text, model: $bar.model, effort: $bar.effort, tray: bar.attachments,
-            isStreaming: isStreaming, docked: chat != nil, embedded: true, focusToken: bar.focusToken,
-            onSend: {
-                withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.40, dampingFraction: 0.82)) {
-                    bar.send(using: chats)
-                }
-            },
-            onStop: { if let id = bar.chatID { chats.cancel(id) } },
-            pickerIsPresented: $bar.pickerIsPresented,
-            usesExternalPicker: true,
-            // An open chat shows its own mode; the toggle only sets up the next chat.
-            agentDirectory: chat.map(\.agentDirectory) ?? bar.agentDirectory,
-            agentPermissions: chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto),
-            onToggleAgent: toggleAgent,
-            onChooseAgentDirectory: chat == nil ? chooseAgentDirectory : nil,
-            chat: chat
-        )
-    }
 }
-

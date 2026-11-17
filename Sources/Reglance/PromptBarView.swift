@@ -6,89 +6,57 @@ import SwiftUI
 /// [Ask anything…] [Model ⌄] [send]
 /// Used by the floating panel and by the main window's conversation view.
 struct PromptBarView: View {
-    @Binding var text: String
-    @Binding var model: ChatModel
-    @Binding var effort: Effort
-    /// Dropped and pasted files, shown as chips above the text.
-    let tray: AttachmentTray
-    var isStreaming: Bool
+    @Bindable var session: ComposerSession
     /// Docked inside the expanded reply panel (design/chat-view.html): a tinted fill
     /// instead of its own glass, and a follow-up placeholder.
     var docked = false
-    /// The floating surface supplies one stable material around the composer.
+    /// The floating surface supplies one stable material around the composer, and shows
+    /// the picker card itself.
     var embedded = false
-    /// Bump to move keyboard focus into the text field.
-    var focusToken: Int
-    var onSend: () -> Void
-    var onStop: () -> Void
-    /// The floating controller owns this binding so Esc closes the picker first.
-    var pickerIsPresented: Binding<Bool>? = nil
-    var usesExternalPicker = false
-    /// Non-nil while agent mode is on: the folder the chat runs in. Shows the agent glow.
-    var agentDirectory: URL? = nil
-    /// How the agent chat approves actions: blue for auto mode, red when bypassed.
-    var agentPermissions: AgentPermissions = .auto
-    /// The Agent button (⌘⇧A).
-    var onToggleAgent: () -> Void = {}
-    /// Changes the agent folder. Nil once the chat exists, since its folder is fixed.
-    var onChooseAgentDirectory: (() -> Void)? = nil
-    /// The open chat, whose backend the picker is locked to.
-    var chat: Chat? = nil
+    /// How sending changes the layout: the floating bar grows into its reply panel.
+    var sendAnimation: Animation? = nil
 
-    @State private var localPickerIsPresented = false
-    @State private var modelLock = ModelLock()
-    @AppStorage(PlayfulPrompts.defaultsKey) private var playfulPrompts = false
+    @AppStorage(PlayfulPrompts.defaultsKey, store: Preferences.store) private var playfulPrompts = false
     @State private var playfulPrompt = PlayfulPrompts.random()
+    /// Observed so a composer already in agent mode recolours when Settings changes.
+    @AppStorage(AgentMode.bypassKey, store: AgentMode.defaults) private var bypassesPermissions = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var placeholder: String {
         if docked { return "Ask a follow-up" }
         return playfulPrompts ? playfulPrompt : "Ask anything"
     }
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var pickerPresentation: Binding<Bool> { pickerIsPresented ?? $localPickerIsPresented }
-    private var pickerMotion: Animation? {
-        reduceMotion ? .easeOut(duration: 0.10) : .spring(response: 0.38, dampingFraction: 0.80)
-    }
-
-    /// The backend the next message must use: the open chat's, or Claude Code for a new
-    /// agent chat (agent mode runs on Claude Code only). Nil leaves every backend open.
-    var lockedBackend: Backend? {
-        Self.lockedBackend(chat: chat, agentDirectory: agentDirectory)
-    }
-
-    static func lockedBackend(chat: Chat?, agentDirectory: URL?) -> Backend? {
-        chat?.backend ?? (agentDirectory != nil ? .claude : nil)
+    private var tray: AttachmentTray { session.attachments }
+    private var agentDirectory: URL? { session.shownAgentDirectory }
+    /// An open chat shows its own mode; Settings decides for the next chat.
+    private var agentPermissions: AgentPermissions {
+        session.chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto)
     }
 
     /// One composer size for the floating bar and the chats window.
     private var editorInset: CGFloat { ComposerShape.editorInset }
 
     private var canSend: Bool {
-        !tray.isPreparing && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !tray.drafts.isEmpty)
+        !tray.isPreparing && (!session.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !tray.drafts.isEmpty)
     }
     private var showsTray: Bool { !tray.drafts.isEmpty || tray.error != nil || tray.isPreparing }
 
     var body: some View {
-        layers.onChange(of: lockedBackend, initial: true) { _, backend in
-            var newModel = model, newEffort = effort
-            modelLock.apply(backend, chat: chat, model: &newModel, effort: &newEffort)
-            if newModel != model { model = newModel }
-            if newEffort != effort { effort = newEffort }
-        }
+        layers.onChange(of: session.lockedBackend, initial: true) { session.applyModelLock() }
     }
 
     @ViewBuilder private var layers: some View {
-        if usesExternalPicker {
+        if embedded {
             // The floating root owns the shared glass container and accessory.
             composer
         } else {
             GlassEffectContainer { composer.agentGlowAnchor() }
                 .agentGlow(isOn: agentDirectory != nil, color: agentPermissions.color,
                            cornerRadius: ComposerShape.cornerRadius)
-                .modelPickerOverlay(isPresented: pickerPresentation.wrappedValue, model: $model, effort: $effort,
-                                    backend: lockedBackend,
-                                    reduceMotion: reduceMotion, onDone: dismissPicker)
+                .modelPickerOverlay(isPresented: session.pickerIsPresented, model: $session.model,
+                                    effort: $session.effort, backend: session.lockedBackend,
+                                    reduceMotion: reduceMotion, onDone: { session.setPickerPresented(false) })
             // The card floats over the conversation above the composer.
             .zIndex(1)
         }
@@ -119,8 +87,8 @@ struct PromptBarView: View {
         HStack(spacing: 8) {
             AgentModeBadge(permissions: agentPermissions)
             Group {
-                if let onChooseAgentDirectory {
-                    Button(action: onChooseAgentDirectory) {
+                if session.chat == nil {
+                    Button(action: session.chooseAgentDirectory) {
                         HStack(spacing: 3) {
                             Label(AgentMode.displayPath(directory), systemImage: "folder")
                             Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).opacity(0.7)
@@ -139,7 +107,7 @@ struct PromptBarView: View {
             .lineLimit(1)
             .truncationMode(.middle)
             Spacer(minLength: 0)
-            if let replaced = modelLock.switchedFrom, replaced.backend != .claude {
+            if let replaced = session.modelLock.switchedFrom, replaced.backend != .claude {
                 // Agent mode runs on Claude Code only; the earlier model returns when it's off.
                 Text("Runs on Claude Code")
                     .font(.system(size: 11))
@@ -176,15 +144,16 @@ struct PromptBarView: View {
 
     private var inputRow: some View {
         HStack(alignment: .bottom, spacing: 4) {
-            PromptEditor(text: $text, placeholder: placeholder,
-                         tray: tray, focusToken: focusToken, onSubmit: submit, onCancel: dismissPicker,
+            PromptEditor(text: $session.text, placeholder: placeholder,
+                         tray: tray, focusToken: session.focusToken, onSubmit: submit,
+                         onCancel: { session.setPickerPresented(false) },
                          verticalInset: editorInset)
                 .frame(minHeight: 20 + 2 * editorInset)
                 // In SwiftUI, not drawn by the text view: a hierarchical style on glass adapts
                 // to what's behind it, where AppKit's placeholder grey went muddy on dark or
                 // colourful backgrounds. Placed where the editor starts its first line.
                 .overlay(alignment: .topLeading) {
-                    if text.isEmpty {
+                    if session.text.isEmpty {
                         Text(placeholder)
                             .font(.system(size: 15))
                             .foregroundStyle(.secondary)
@@ -196,34 +165,29 @@ struct PromptBarView: View {
                     }
                 }
                 // Opening the bar or starting a chat bumps the token: a new playful prompt.
-                .onChange(of: focusToken) { playfulPrompt = PlayfulPrompts.random(excluding: playfulPrompt) }
+                .onChange(of: session.focusToken) { playfulPrompt = PlayfulPrompts.random(excluding: playfulPrompt) }
 
-            AgentToggle(isOn: agentDirectory != nil, permissions: agentPermissions, action: onToggleAgent)
+            AgentToggle(isOn: agentDirectory != nil, permissions: agentPermissions, action: session.toggleAgentMode)
                 .padding(.bottom, editorInset - 5)
 
-            ModelPickerPill(model: model, effort: effort, isExpanded: pickerPresentation.wrappedValue) {
-                withAnimation(pickerMotion) { pickerPresentation.wrappedValue.toggle() }
+            ModelPickerPill(model: session.model, effort: session.effort, isExpanded: session.pickerIsPresented) {
+                session.setPickerPresented(!session.pickerIsPresented)
             }
             // Keeps the pill and send button centred on the first line of a taller bar.
             .padding(.bottom, editorInset - 5)
 
-            SendButton(state: isStreaming ? .stop : (canSend ? .ready : .idle),
+            SendButton(state: session.isStreaming ? .stop : (canSend ? .ready : .idle),
                        tint: agentDirectory == nil ? .accentColor : agentPermissions.color) {
-                isStreaming ? onStop() : submit()
+                session.isStreaming ? session.stop() : submit()
             }
             .padding(.bottom, editorInset - 5)
         }
     }
 
     private func submit() {
-        guard canSend, !isStreaming else { return }
-        dismissPicker()
-        onSend()
-    }
-
-    private func dismissPicker() {
-        guard pickerPresentation.wrappedValue else { return }
-        withAnimation(pickerMotion) { pickerPresentation.wrappedValue = false }
+        guard canSend, !session.isStreaming else { return }
+        session.setPickerPresented(false)
+        withAnimation(sendAnimation) { session.send() }
     }
 }
 

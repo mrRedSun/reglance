@@ -14,6 +14,8 @@ struct HeadlessWindows: SuiteTrait, TestTrait, TestScoping {
         // Never switched back off: suites run in parallel and nothing in tests needs it off.
         await MainActor.run {
             WindowPresentation.isHeadless = true
+            // Composers save the last model choice; keep it out of the runner's real defaults.
+            if Preferences.store == .standard { Preferences.store = UserDefaults(suiteName: "reglance-headless-tests")! }
             // Opening a window refreshes the models; tests must not start the real CLIs
             // or write the real cache.
             if !(ModelLibrary.shared.isFixedForTests) {

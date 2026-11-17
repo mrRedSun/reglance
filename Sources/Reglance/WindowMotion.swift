@@ -54,3 +54,18 @@ enum FloatingPanelMotion {
         isPresented || reduceMotion ? 0 : BloomMotion.startBlur
     }
 }
+
+/// The composer's springs. Layout: the bar growing into a reply panel, a new chat, agent mode
+/// adding its row. Picker: the model card opening and closing. Reduce Motion gets a short fade.
+/// Without an argument they read Reduce Motion from the system, for code outside a view.
+enum ComposerMotion {
+    static func layout(reduceMotion: Bool = systemReducesMotion) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.40, dampingFraction: 0.82)
+    }
+
+    static func picker(reduceMotion: Bool = systemReducesMotion) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.38, dampingFraction: 0.80)
+    }
+
+    static var systemReducesMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+}

@@ -41,7 +41,7 @@ struct DemoScene {
         return DemoScene(name: name, directory: directory)
     }
 
-    func run(chats: ChatController, panel: FloatingPanelController, bar: FloatingBarModel, mainWindow: MainWindowController) {
+    func run(chats: ChatController, panel: FloatingPanelController, bar: ComposerSession, mainWindow: MainWindowController) {
         switch ProcessInfo.processInfo.environment["REGLANCE_DEMO_APPEARANCE"] {
         case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
@@ -60,7 +60,7 @@ struct DemoScene {
         }
     }
 
-    private func play(chats: ChatController, panel: FloatingPanelController, bar: FloatingBarModel,
+    private func play(chats: ChatController, panel: FloatingPanelController, bar: ComposerSession,
                       mainWindow: MainWindowController, screen: NSScreen) async throws {
         switch name {
         case .hero:
@@ -73,20 +73,20 @@ struct DemoScene {
                 try await pause(0.045)
             }
             try await pause(0.5)
-            withAnimation(.spring(response: 0.40, dampingFraction: 0.82)) { bar.send(using: chats) }
+            withAnimation(ComposerMotion.layout()) { bar.send() }
 
         case .picker:
             panel.show()
             try await pause(1)
             await ready(Self.bottom(of: panel.panel.frame, height: 520), video: 5)
             try await pause(0.6)
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) { bar.pickerIsPresented = true }
+            bar.setPickerPresented(true)
             try await pause(1.4)
             withAnimation(.snappy) { bar.model = .opus }
             try await pause(1.0)
             withAnimation(.snappy) { bar.effort = .high }
             try await pause(1.0)
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.80)) { bar.pickerIsPresented = false }
+            bar.setPickerPresented(false)
 
         case .attachments:
             panel.show()

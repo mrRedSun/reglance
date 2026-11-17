@@ -85,11 +85,11 @@ struct ModelPickerTests {
         let suite = "picker-choice-test-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let first = FloatingBarModel(lastChoice: LastModelChoice(defaults: defaults))
+        let first = ComposerSession(chats: makeChats(), lastChoice: LastModelChoice(defaults: defaults))
         #expect(first.model == .sonnet && first.effort == .automatic)
         first.model = .opus
         first.effort = .high
-        let next = FloatingBarModel(lastChoice: LastModelChoice(defaults: defaults))
+        let next = ComposerSession(chats: makeChats(), lastChoice: LastModelChoice(defaults: defaults))
         #expect(next.model == .opus && next.effort == .high)
         // A choice made in the chats window reaches a bar that's already loaded.
         LastModelChoice(defaults: defaults).model = .haiku
@@ -107,10 +107,8 @@ struct ModelPickerTests {
 
     @Test func expandedPickerFitsTheFloatingWindowAndClosesOnHide() async throws {
         _ = NSApplication.shared
-        let directory = FileManager.default.temporaryDirectory.appending(path: "picker-window-test-\(UUID())")
-        let bar = FloatingBarModel()
-        let controller = FloatingPanelController(chats: ChatController(store: ChatStore(directory: directory)),
-                                                 model: bar, openInWindow: { _ in })
+        let controller = FloatingPanelController(chats: makeChats(), openInWindow: { _ in })
+        let bar = controller.composer
         controller.show()
         defer { controller.hide() }
         // Wait out the entrance spring so the bar is opaque before measuring it.
