@@ -11,6 +11,9 @@ struct PromptEditor: NSViewRepresentable {
     let focusToken: Int
     let onSubmit: () -> Void
     var onCancel: () -> Void = {}
+    var onHoldToTalk: () -> Void = {}
+    var onReleaseToSend: () -> Void = {}
+    var onReleaseTooSoon: () -> Void = {}
     /// Space above and below the text. The floating bar uses more, for a taller bar.
     var verticalInset: CGFloat = 5
 
@@ -57,6 +60,9 @@ struct PromptEditor: NSViewRepresentable {
         editor.pasteAttachment = { board in AttachmentPasteboard.paste(into: tray, from: board) }
         editor.onSubmit = onSubmit
         editor.onCancel = onCancel
+        editor.onHoldToTalk = onHoldToTalk
+        editor.onReleaseToSend = onReleaseToSend
+        editor.onReleaseTooSoon = onReleaseTooSoon
         editor.needsDisplay = true
         if context.coordinator.focusToken != focusToken {
             context.coordinator.focusToken = focusToken
@@ -128,6 +134,12 @@ final class PromptTextView: NSTextView {
     var pasteAttachment: ((NSPasteboard) -> Bool)?
     var onSubmit: (() -> Void)?
     var onCancel: (() -> Void)?
+    /// Return held down: start dictating.
+    var onHoldToTalk: (() -> Void)?
+    /// Return let go long enough after `onHoldToTalk`: send once the last words are in.
+    var onReleaseToSend: (() -> Void)?
+    /// Return let go too soon after `onHoldToTalk`: throw the recording away.
+    var onReleaseTooSoon: (() -> Void)?
     private var wantsFocus = false
 
     /// The clipboard Cmd-V reads; tests substitute a private one.
@@ -167,17 +179,67 @@ final class PromptTextView: NSTextView {
         return super.performDragOperation(sender)
     }
 
+    /// When a held Return starts the mic, and how long it must be held to send the speech.
+    var holdTiming = HoldToTalk()
+    /// Whether Return is physically down; tests stand in for the keyboard.
+    var isReturnDown: () -> Bool = {
+        CGEventSource.keyState(.combinedSessionState, key: 36) || CGEventSource.keyState(.combinedSessionState, key: 76)
+    }
+    private enum ReturnKey { case up, pressed(Task<Void, Never>), talking(since: ContinuousClock.Instant) }
+    private var returnKey = ReturnKey.up
+
+    /// Return sends when it's let go, not when it goes down. Held past `holdTiming.micDelay`
+    /// it starts dictation; let go after `holdTiming.sendAfter` it sends what was said, and
+    /// sooner it throws the recording away.
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36 || event.keyCode == 76 {
-            if event.modifierFlags.intersection([.option, .shift]).isEmpty {
-                onSubmit?()
-            } else {
+        if Self.isReturn(event) {
+            if !event.modifierFlags.intersection([.option, .shift]).isEmpty {
                 super.insertNewline(nil)
+            } else if !event.isARepeat {
+                // A fresh press starts over, even if the last key-up went to another window.
+                if case .pressed(let wait) = returnKey { wait.cancel() }
+                let delay = holdTiming.micDelay
+                returnKey = .pressed(Task { [weak self] in
+                    try? await Task.sleep(for: delay)
+                    guard !Task.isCancelled, let self, case .pressed = self.returnKey else { return }
+                    // The key-up can get lost (the bar hid mid-press); never start the mic then.
+                    guard self.isReturnDown() else { self.returnKey = .up; return }
+                    self.returnKey = .talking(since: .now)
+                    self.onHoldToTalk?()
+                })
             }
             return
         }
         super.keyDown(with: event)
     }
+
+    override func keyUp(with event: NSEvent) {
+        guard Self.isReturn(event) else { return super.keyUp(with: event) }
+        let key = returnKey
+        returnKey = .up
+        switch key {
+        case .up: break
+        case .pressed(let wait):
+            wait.cancel()
+            onSubmit?()
+        case .talking(let since):
+            if ContinuousClock.now - since + holdTiming.micDelay >= holdTiming.sendAfter {
+                onReleaseToSend?()
+            } else {
+                onReleaseTooSoon?()
+            }
+        }
+    }
+
+    /// Focus moved away mid-press, so the key-up won't come here: forget the press. Dictation
+    /// already started keeps going; the mic button or ⌘⇧D stops it.
+    override func resignFirstResponder() -> Bool {
+        if case .pressed(let wait) = returnKey { wait.cancel() }
+        returnKey = .up
+        return super.resignFirstResponder()
+    }
+
+    private static func isReturn(_ event: NSEvent) -> Bool { event.keyCode == 36 || event.keyCode == 76 }
 
     override func insertNewline(_ sender: Any?) { onSubmit?() }
     override func cancelOperation(_ sender: Any?) { onCancel?() }
@@ -199,4 +261,13 @@ final class PromptTextView: NSTextView {
             self.wantsFocus = false
         }
     }
+}
+
+/// Hold Return to talk. A tap sends as always; the mic waits out a tap so its menu bar dot
+/// doesn't flash on every send.
+struct HoldToTalk {
+    /// Held this long, Return starts the mic.
+    var micDelay: Duration = .milliseconds(200)
+    /// Let go after this long (from the press), the speech is sent; sooner, it's thrown away.
+    var sendAfter: Duration = .seconds(2)
 }

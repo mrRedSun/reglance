@@ -105,7 +105,7 @@ Everything is stored under `~/Library/Application Support/Reglance/`:
   - Demo and tests: `DemoMode`, `DemoContent`, `ScriptedClient` (plays back events and records requests, for both test targets).
 - `Sources/Reglance`: the app.
   - Windows: `AppDelegate` (menus, status item, hotkey wiring), `FloatingPanel` (non-activating panel and its shortcuts), `MainWindow` (controller and title accessory), `Sidebar` (library list, rows, rename), `ConversationView`, `SettingsWindow` (toolbar tabs: login item, shortcut recorder and personal preferences; agent permissions; providers with their switches and doctor checks, which live in `ChatCore`), `WindowPresentation`, `WindowDragRegion`.
-  - Composer: `ComposerSession` (one per window: draft, attachments, model, effort, agent folder, picker and model lock, with send, new chat and agent-mode actions), `PromptBarView` (the one composer view both windows use), `PromptEditor` (native text and screenshot paste), `Attachments`, `ModelPickerView`, `ModelLibrary` (the cached model lists, provider switches and `ModelLock`), `AgentMode` (confirmations, permissions, folder picker, badge), `PlayfulPrompts`.
+  - Composer: `ComposerSession` (one per window: draft, attachments, model, effort, agent folder, picker and model lock, with send, new chat and agent-mode actions), `PromptBarView` (the one composer view both windows use), `PromptEditor` (native text, screenshot paste, Return that sends on release or talks while held), `Dictation` (on-device speech to text with `SpeechAnalyzer`, merged into the draft), `Attachments`, `ModelPickerView`, `ModelLibrary` (the cached model lists, provider switches and `ModelLock`), `AgentMode` (confirmations, permissions, folder picker, badge), `PlayfulPrompts`.
   - Replies: `ReplyView` (expanded panel and `MessageView`, which renders every message in both windows), `ReplyBody` (markdown, chart and document cards), `HTMLWidget` (sandboxed web view), `MarkdownText`, `NerdStats` (the stats under replies while ⌥ is held, and `OptionKey`, which tracks it), `Controls` (shared small buttons).
   - Shared: `Preferences` (the app's defaults domain, `LastModelChoice`, `NewChatAfter`), `WindowMotion` (`BloomMotion`, `ComposerMotion` and sidebar layout), `HotKey` (Carbon global hotkey, no Accessibility permission needed, and the saved shortcut), `OpenCodeSettings`, `DemoScene` (README shots).
 - `Tests`: each target has a `TestSupport.swift`. `ChatCoreTests` has temporary stores; `ReglanceTests` has the shared helpers (`makeChats`, `makeComposer`, `findView`, throwaway folders and preferences) and `HeadlessWindows.swift` the `.headlessWindows` trait.
@@ -119,7 +119,3 @@ Everything is stored under `~/Library/Application Support/Reglance/`:
 ## Releases
 
 Homebrew builds from source: `Formula/reglance.rb` points at a tagged tarball and its sha256. To release, tag the commit, push the tag, then update the formula's URL and checksum.
-
-## Not done yet
-
-- Dictation.

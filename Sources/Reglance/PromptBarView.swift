@@ -23,6 +23,7 @@ struct PromptBarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var placeholder: String {
+        if session.dictation.isActive { return "Listening…" }
         if docked { return "Ask a follow-up" }
         return playfulPrompts ? playfulPrompt : "Ask anything"
     }
@@ -51,9 +52,10 @@ struct PromptBarView: View {
             // The floating root owns the shared glass container and accessory.
             composer
         } else {
-            GlassEffectContainer { composer.agentGlowAnchor() }
-                .agentGlow(isOn: agentDirectory != nil, color: agentPermissions.color,
-                           cornerRadius: ComposerShape.cornerRadius)
+            GlassEffectContainer { composer.glowAnchor() }
+                .edgeGlow(agent: agentDirectory != nil ? agentPermissions.color : nil,
+                          isListening: session.dictation.state == .listening,
+                          cornerRadius: ComposerShape.cornerRadius)
                 .modelPickerOverlay(isPresented: session.pickerIsPresented, model: $session.model,
                                     effort: $session.effort, backend: session.lockedBackend,
                                     reduceMotion: reduceMotion, onDone: { session.setPickerPresented(false) })
@@ -68,6 +70,13 @@ struct PromptBarView: View {
                 agentRow(agentDirectory).transition(.opacity.combined(with: .offset(y: 8)))
             }
             if showsTray { trayRow }
+            if let error = session.dictation.error {
+                Label(error, systemImage: "mic.slash")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .padding(.top, 2)
+            }
             inputRow
         }
         // Leading inset matches the design's text start now that the + button is gone.
@@ -147,6 +156,9 @@ struct PromptBarView: View {
             PromptEditor(text: $session.text, placeholder: placeholder,
                          tray: tray, focusToken: session.focusToken, onSubmit: submit,
                          onCancel: { session.setPickerPresented(false) },
+                         onHoldToTalk: session.beginHoldToTalk,
+                         onReleaseToSend: { Task { await session.endHoldToTalk(); submit() } },
+                         onReleaseTooSoon: session.abandonHoldToTalk,
                          verticalInset: editorInset)
                 .frame(minHeight: 20 + 2 * editorInset)
                 // In SwiftUI, not drawn by the text view: a hierarchical style on glass adapts
@@ -166,6 +178,9 @@ struct PromptBarView: View {
                 }
                 // Opening the bar or starting a chat bumps the token: a new playful prompt.
                 .onChange(of: session.focusToken) { playfulPrompt = PlayfulPrompts.random(excluding: playfulPrompt) }
+
+            DictationButton(state: session.dictation.state, action: session.toggleDictation)
+                .padding(.bottom, editorInset - 5)
 
             AgentToggle(isOn: agentDirectory != nil, permissions: agentPermissions, action: session.toggleAgentMode)
                 .padding(.bottom, editorInset - 5)
@@ -213,8 +228,8 @@ enum ComposerShape {
     static let controlFill = Color.primary.opacity(0.1)
 }
 
-/// The glass the agent glow surrounds, published from inside a GlassEffectContainer.
-struct AgentGlowAnchorKey: PreferenceKey {
+/// The glass the edge glow surrounds, published from inside a GlassEffectContainer.
+struct GlowAnchorKey: PreferenceKey {
     static let defaultValue: Anchor<CGRect>? = nil
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
         value = value ?? nextValue()
@@ -222,21 +237,25 @@ struct AgentGlowAnchorKey: PreferenceKey {
 }
 
 extension View {
-    /// Marks this glass as the one the agent glow surrounds.
-    func agentGlowAnchor() -> some View {
-        anchorPreference(key: AgentGlowAnchorKey.self, value: .bounds) { $0 }
+    /// Marks this glass as the one the edge glow surrounds.
+    func glowAnchor() -> some View {
+        anchorPreference(key: GlowAnchorKey.self, value: .bounds) { $0 }
     }
 
-    /// Draws the agent glow behind this view, around the glass marked with
-    /// `agentGlowAnchor()`. Apply outside the GlassEffectContainer: content inside the
-    /// glass is held back while the glass reshapes, so a glow there appeared only once the
+    /// Draws the edge glow behind this view, around the glass marked with `glowAnchor()`:
+    /// the microphone's orange while dictation listens, else the agent's colour in agent
+    /// mode (nil when off). Apply outside the GlassEffectContainer: content inside the glass
+    /// is held back while the glass reshapes, so a glow there appeared only once the
     /// composer had finished growing.
-    func agentGlow(isOn: Bool, color: Color, cornerRadius: CGFloat) -> some View {
-        backgroundPreferenceValue(AgentGlowAnchorKey.self) { anchor in
+    func edgeGlow(agent: Color?, isListening: Bool, cornerRadius: CGFloat) -> some View {
+        backgroundPreferenceValue(GlowAnchorKey.self) { anchor in
             GeometryReader { proxy in
                 if let anchor {
                     let rect = proxy[anchor]
-                    AgentGlow(color: color, cornerRadius: cornerRadius, isOn: isOn)
+                    EdgeGlow(color: isListening ? .microphoneInUse : agent ?? .clear, cornerRadius: cornerRadius,
+                             isOn: isListening || agent != nil)
+                        // Agent mode spreads with the composer's own animation; the mic has none.
+                        .animation(.easeInOut(duration: 0.35), value: isListening)
                         .frame(width: rect.width, height: rect.height)
                         .offset(x: rect.minX, y: rect.minY)
                 }
@@ -245,11 +264,11 @@ extension View {
     }
 }
 
-/// The glow around an agent composer or reply panel: a tight glow on the edge and a wider
-/// halo, only outside the shape, with no hard border. Always in place and driven by
-/// `isOn`, so it spreads out on the same animation that grows the composer, not on a timer
-/// of its own.
-struct AgentGlow: View {
+/// The glow around the composer or reply panel in agent mode or while dictating: a tight
+/// glow on the edge and a wider halo, only outside the shape, with no hard border. Always in
+/// place and driven by `isOn`, so it spreads out on the same animation that grows the
+/// composer, not on a timer of its own.
+struct EdgeGlow: View {
     let color: Color
     let cornerRadius: CGFloat
     let isOn: Bool
@@ -276,6 +295,36 @@ private nonisolated struct OutsideShape: Shape {
         var path = Path(rect.insetBy(dx: -40, dy: -40))
         path.addPath(shape.path(in: rect))
         return path
+    }
+}
+
+/// Starts and stops dictation (⌘⇧D). While listening the waveform moves.
+private struct DictationButton: View {
+    let state: Dictation.State
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                switch state {
+                case .off: Image(systemName: "mic")
+                case .starting: ProgressView().controlSize(.mini)
+                case .listening: Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: true)
+                }
+            }
+            .font(.system(size: 12.5, weight: .semibold))
+            .foregroundStyle(state == .listening ? .primary : .secondary)
+            .frame(width: 26, height: 26)
+            .background(Color.primary.opacity(state == .listening ? 0.2 : 0.1), in: .circle)
+            .contentShape(.circle)
+            .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("d", modifiers: [.command, .shift])
+        .padding(.bottom, 2)
+        .help(state == .off ? "Dictate (⌘⇧D)" : "Stop dictating (⌘⇧D)")
+        .accessibilityLabel("Dictation")
+        .accessibilityValue(state == .off ? "Off" : "Listening")
     }
 }
 
@@ -340,4 +389,9 @@ private struct SendButton: View {
         .help(state == .stop ? "Stop" : "Send")
         .animation(.easeOut(duration: 0.15), value: state)
     }
+}
+
+extension Color {
+    /// The orange of macOS's microphone-in-use indicator.
+    static let microphoneInUse = Color.orange
 }
