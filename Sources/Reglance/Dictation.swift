@@ -149,6 +149,12 @@ enum DictationError: LocalizedError {
     }
 }
 
+/// Hands a microphone buffer to the converter's input block, which runs synchronously inside
+/// `convert`. Some SDKs mark `AVAudioPCMBuffer` Sendable and some don't; this builds on both.
+private nonisolated struct AudioBuffer: @unchecked Sendable {
+    let buffer: AVAudioPCMBuffer
+}
+
 /// On-device speech recognition with `SpeechAnalyzer` and Apple's dictation model, in the
 /// system language. The first use downloads the model.
 final class SpeechRecognizer: SpeechRecognizing {
@@ -226,6 +232,7 @@ final class SpeechRecognizer: SpeechRecognizing {
             let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 1
             guard let converted = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
             nonisolated(unsafe) var supplied = false
+            let source = AudioBuffer(buffer: buffer)
             var error: NSError?
             converter.convert(to: converted, error: &error) { _, status in
                 if supplied {
@@ -234,7 +241,7 @@ final class SpeechRecognizer: SpeechRecognizing {
                 }
                 supplied = true
                 status.pointee = .haveData
-                return buffer
+                return source.buffer
             }
             if error == nil, converted.frameLength > 0 { input.yield(AnalyzerInput(buffer: converted)) }
         }
