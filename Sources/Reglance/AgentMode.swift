@@ -5,8 +5,9 @@ import SwiftUI
 /// Agent mode: a chat that runs the normal Claude Code environment in a chosen folder.
 /// New agent chats run in Claude Code's auto mode (blue), or with permissions bypassed
 /// (red) once that's turned on in Settings. Every composer starts with agent mode off;
-/// the person turns it on with the composer's Agent button or ⌘⇧A, which starts a new
-/// agent chat.
+/// the person turns it on with the composer's Agent button, ⌘⇧A, or "/" typed into an
+/// empty composer, which starts a new agent chat. Delete in the empty composer turns it
+/// off again before the chat starts.
 enum AgentMode {
     static let bypassKey = "agentBypassPermissions"
     private static let directoryKey = "agentDirectory"

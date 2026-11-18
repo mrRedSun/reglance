@@ -30,6 +30,8 @@ final class ComposerSession {
     /// Runs after an agent-mode alert or folder panel closes. The floating panel takes key
     /// focus back here; a normal window gets it back by itself.
     @ObservationIgnored var afterModal: () -> Void = {}
+    /// Asks before agent mode first goes on; tests answer without an alert.
+    @ObservationIgnored var confirmAgentMode: @MainActor () -> Bool = AgentMode.confirmEnabling
     @ObservationIgnored private let lastChoice: LastModelChoice
     @ObservationIgnored private var textBeforeHold: String?
     /// Off while a model comes from an opened chat rather than the person's choice.
@@ -104,14 +106,13 @@ final class ComposerSession {
     /// new chat. The draft stays in the composer.
     func toggleAgentMode() {
         pickerIsPresented = false
-        let isOn = chat?.isAgent ?? (agentDirectory != nil)
-        if isOn {
+        if isAgentModeOn {
             withAnimation(ComposerMotion.layout()) {
                 agentDirectory = nil
                 chatID = nil
             }
         } else {
-            let confirmed = AgentMode.confirmEnabling()
+            let confirmed = confirmAgentMode()
             afterModal()
             if confirmed {
                 withAnimation(ComposerMotion.layout()) {
@@ -121,6 +122,25 @@ final class ComposerSession {
             }
         }
         focusToken += 1
+    }
+
+    /// The open chat is an agent chat, or the next new chat will be one.
+    private var isAgentModeOn: Bool { chat?.isAgent ?? (agentDirectory != nil) }
+
+    /// "/" typed into an empty composer turns agent mode on, like the Agent button. Returns
+    /// whether it did, so the slash isn't typed; declined, the slash is typed as usual.
+    func slashTypedFirst() -> Bool {
+        guard text.isEmpty, !isAgentModeOn else { return false }
+        toggleAgentMode()
+        return agentDirectory != nil
+    }
+
+    /// Delete in an empty composer turns agent mode off before an agent chat starts. Returns
+    /// whether it did. An open agent chat stays open: Delete never leaves a conversation.
+    func deleteInEmptyComposer() -> Bool {
+        guard text.isEmpty, chatID == nil, agentDirectory != nil else { return false }
+        toggleAgentMode()
+        return true
     }
 
     /// Only before the chat starts: an agent chat's folder is fixed once it exists.

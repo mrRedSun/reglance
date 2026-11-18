@@ -159,6 +159,8 @@ struct PromptBarView: View {
                          onHoldToTalk: session.beginHoldToTalk,
                          onReleaseToSend: { Task { await session.endHoldToTalk(); submit() } },
                          onReleaseTooSoon: session.abandonHoldToTalk,
+                         onSlashFirst: session.slashTypedFirst,
+                         onDeleteWhenEmpty: session.deleteInEmptyComposer,
                          verticalInset: editorInset)
                 .frame(minHeight: 20 + 2 * editorInset)
                 // In SwiftUI, not drawn by the text view: a hierarchical style on glass adapts

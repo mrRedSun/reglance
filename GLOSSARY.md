@@ -14,7 +14,7 @@ The words this project uses for its own concepts. Use them in code, issues and d
 
 **Session.** The backend's own record of a conversation, kept by the CLI, not by ReGlance. A chat stores the latest session id; each reply stores the session right after it. Each turn *forks* the previous reply's session rather than resuming it in place, so earlier ids stay unchanged and regenerate can go back one reply.
 
-**Agent mode.** A chat that runs Claude Code with the person's full environment in a chosen folder, approved by auto mode or with permissions bypassed. Fixed when the chat starts and Claude Code only. *Not to be confused with* an ordinary chat, which is locked to web search.
+**Agent mode.** A chat that runs Claude Code with the person's full environment in a chosen folder, approved by auto mode or with permissions bypassed. Fixed when the chat starts and Claude Code only. Turned on with the Agent button, ⌘⇧A, or "/" typed into an empty composer (the slash isn't kept); Delete in the empty composer turns it off before the chat starts. *Not to be confused with* an ordinary chat, which is locked to web search.
 
 **Lockdown.** What keeps an ordinary chat to web search: ReGlance's system prompt, no skills, MCP, plugins or shell, and a check that ends the turn if any other tool appears (`CodexLockdown`, `CodexClient.allowedItemTypes`, `OpenCodeStreamParser.allowedTools`).
 

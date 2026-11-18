@@ -14,6 +14,8 @@ struct PromptEditor: NSViewRepresentable {
     var onHoldToTalk: () -> Void = {}
     var onReleaseToSend: () -> Void = {}
     var onReleaseTooSoon: () -> Void = {}
+    var onSlashFirst: () -> Bool = { false }
+    var onDeleteWhenEmpty: () -> Bool = { false }
     /// Space above and below the text. The floating bar uses more, for a taller bar.
     var verticalInset: CGFloat = 5
 
@@ -63,6 +65,8 @@ struct PromptEditor: NSViewRepresentable {
         editor.onHoldToTalk = onHoldToTalk
         editor.onReleaseToSend = onReleaseToSend
         editor.onReleaseTooSoon = onReleaseTooSoon
+        editor.onSlashFirst = onSlashFirst
+        editor.onDeleteWhenEmpty = onDeleteWhenEmpty
         editor.needsDisplay = true
         if context.coordinator.focusToken != focusToken {
             context.coordinator.focusToken = focusToken
@@ -140,6 +144,10 @@ final class PromptTextView: NSTextView {
     var onReleaseToSend: (() -> Void)?
     /// Return let go too soon after `onHoldToTalk`: throw the recording away.
     var onReleaseTooSoon: (() -> Void)?
+    /// "/" typed into the empty text; returns true when it was taken (agent mode went on).
+    var onSlashFirst: (() -> Bool)?
+    /// Delete pressed with no text; returns true when it was taken (agent mode went off).
+    var onDeleteWhenEmpty: (() -> Bool)?
     private var wantsFocus = false
 
     /// The clipboard Cmd-V reads; tests substitute a private one.
@@ -192,6 +200,7 @@ final class PromptTextView: NSTextView {
     /// it starts dictation; let go after `holdTiming.sendAfter` it sends what was said, and
     /// sooner it throws the recording away.
     override func keyDown(with event: NSEvent) {
+        if takesAsShortcut(event) { return }
         if Self.isReturn(event) {
             if !event.modifierFlags.intersection([.option, .shift]).isEmpty {
                 super.insertNewline(nil)
@@ -237,6 +246,16 @@ final class PromptTextView: NSTextView {
         if case .pressed(let wait) = returnKey { wait.cancel() }
         returnKey = .up
         return super.resignFirstResponder()
+    }
+
+    /// Typed keys only, so pasting or dictating "/" never turns agent mode on. A held Delete
+    /// that empties the text doesn't go on to turn it off: repeats are skipped.
+    private func takesAsShortcut(_ event: NSEvent) -> Bool {
+        guard string.isEmpty, !hasMarkedText(),
+              event.modifierFlags.intersection([.command, .control]).isEmpty else { return false }
+        if event.characters == "/" { return onSlashFirst?() ?? false }
+        if event.keyCode == 51, !event.isARepeat { return onDeleteWhenEmpty?() ?? false }
+        return false
     }
 
     private static func isReturn(_ event: NSEvent) -> Bool { event.keyCode == 36 || event.keyCode == 76 }
