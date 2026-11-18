@@ -34,4 +34,6 @@ The words this project uses for its own concepts. Use them in code, issues and d
 
 **Demo mode / demo scene.** Demo mode swaps real chats and CLIs for made-up content (`DemoMode`, `DemoContent`). A demo scene is one scripted shot of it that `scripts/capture-readme.sh` records for `docs/images/` (`DemoScene`).
 
+**Dictation.** Speech typed into the composer as you talk, on-device with Apple's dictation model (`Dictation`, `SpeechRecognizer`). The mic button or ⌘⇧D starts and stops it, and the composer glows orange like the menu bar mic indicator while it listens; holding Return starts it too (hold to talk): the mic comes on after 200 ms, so a tap still just sends, and letting go after 2 s sends the speech, while letting go sooner throws it away. *Not to be confused with* sending audio: the models only ever get text.
+
 **Nerd stats.** The token, cache, speed, cost and context figures shown under replies while ⌥ is held on its own (`TokenUsage`, `NerdStatsView`, `OptionKey`).

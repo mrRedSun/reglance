@@ -91,6 +91,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        model.composer.dictation.finish()
         sender.orderOut(nil)
         onVisibilityChange?(false)
         return false

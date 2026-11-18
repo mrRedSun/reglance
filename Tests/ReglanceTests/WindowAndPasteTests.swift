@@ -103,19 +103,81 @@ struct WindowAndPasteTests {
         var submits = 0
         editor.onSubmit = { submits += 1 }
         func pressReturn(_ modifiers: NSEvent.ModifierFlags) {
-            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
-                                        timestamp: 0, windowNumber: 0, context: nil,
-                                        characters: "\r", charactersIgnoringModifiers: "\r",
-                                        isARepeat: false, keyCode: 36)!
-            editor.keyDown(with: event)
+            editor.keyDown(with: returnKey(.keyDown, modifiers))
+            editor.keyUp(with: returnKey(.keyUp, modifiers))
         }
-        pressReturn([])
+        editor.keyDown(with: returnKey(.keyDown))
+        #expect(submits == 0, "sends on release, so a hold can turn into dictation")
+        editor.keyUp(with: returnKey(.keyUp))
         #expect(submits == 1)
         #expect(editor.string.isEmpty)
         pressReturn(.shift)
         pressReturn(.option)
         #expect(submits == 1)
         #expect(editor.string == "\n\n")
+    }
+
+    @Test func holdToTalkWaitsOutATapAndSendsAfterTwoSeconds() {
+        let timing = PromptTextView().holdTiming
+        #expect(timing.micDelay == .milliseconds(200))
+        #expect(timing.sendAfter == .seconds(2))
+    }
+
+    /// An editor with fast hold-to-talk timing that records what Return asked for.
+    private final class ReturnLog {
+        let editor = PromptTextView(frame: NSRect(x: 0, y: 0, width: 280, height: 40))
+        var calls: [String] = []
+
+        init(keyIsDown: Bool = true) {
+            _ = NSApplication.shared
+            editor.holdTiming = HoldToTalk(micDelay: .milliseconds(20), sendAfter: .milliseconds(120))
+            editor.isReturnDown = { keyIsDown }
+            editor.onSubmit = { [unowned self] in calls.append("submit") }
+            editor.onHoldToTalk = { [unowned self] in calls.append("talk") }
+            editor.onReleaseToSend = { [unowned self] in calls.append("send speech") }
+            editor.onReleaseTooSoon = { [unowned self] in calls.append("too soon") }
+        }
+
+        func press() { editor.keyDown(with: returnKey(.keyDown)) }
+        func release() { editor.keyUp(with: returnKey(.keyUp)) }
+    }
+
+    @Test func aTapSendsWithoutTouchingTheMic() async throws {
+        let log = ReturnLog()
+        log.press()
+        log.release()
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(log.calls == ["submit"])
+    }
+
+    @Test func holdingReturnTalksAndAFullHoldSendsTheSpeech() async throws {
+        let log = ReturnLog()
+        log.press()
+        log.editor.keyDown(with: returnKey(.keyDown, repeat: true))
+        #expect(await waitUntil { log.calls == ["talk"] })
+        log.editor.keyDown(with: returnKey(.keyDown, repeat: true))
+        try await Task.sleep(for: .milliseconds(150))
+        log.release()
+        #expect(log.calls == ["talk", "send speech"])
+    }
+
+    @Test func lettingGoTooSoonThrowsTheRecordingAway() async {
+        let log = ReturnLog()
+        log.press()
+        #expect(await waitUntil { log.calls == ["talk"] })
+        log.release()
+        #expect(log.calls == ["talk", "too soon"])
+    }
+
+    @Test func aLostReleaseNeverStartsTheMic() async throws {
+        let log = ReturnLog(keyIsDown: false)
+        log.press()
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(log.calls.isEmpty)
+        // Return still works as a tap afterwards.
+        log.press()
+        log.release()
+        #expect(log.calls == ["submit"])
     }
 
     @Test func nativeChatsWindowHasDockPresenceAndCanCloseAndReopen() {
@@ -279,4 +341,9 @@ struct WindowAndPasteTests {
         board.setString("hello", forType: .string)
         #expect(!AttachmentPasteboard.paste(into: AttachmentTray(), from: board))
     }
+}
+
+private func returnKey(_ type: NSEvent.EventType, _ modifiers: NSEvent.ModifierFlags = [], repeat: Bool = false) -> NSEvent {
+    NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0, context: nil,
+                     characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: `repeat`, keyCode: 36)!
 }

@@ -24,17 +24,21 @@ final class ComposerSession {
     var pickerIsPresented = false
     /// Keeps the model on the backend the next message must use.
     private(set) var modelLock = ModelLock()
+    /// Speech into `text`, from the mic button or ⌘⇧D.
+    let dictation: Dictation
 
     /// Runs after an agent-mode alert or folder panel closes. The floating panel takes key
     /// focus back here; a normal window gets it back by itself.
     @ObservationIgnored var afterModal: () -> Void = {}
     @ObservationIgnored private let lastChoice: LastModelChoice
+    @ObservationIgnored private var textBeforeHold: String?
     /// Off while a model comes from an opened chat rather than the person's choice.
     @ObservationIgnored private var recordsChoice = true
 
-    init(chats: ChatController, lastChoice: LastModelChoice = LastModelChoice()) {
+    init(chats: ChatController, lastChoice: LastModelChoice = LastModelChoice(), dictation: Dictation = Dictation()) {
         self.chats = chats
         self.lastChoice = lastChoice
+        self.dictation = dictation
         model = ModelLibrary.shared.usable(lastChoice.model)
         effort = lastChoice.effort
     }
@@ -53,6 +57,8 @@ final class ComposerSession {
     /// Sends the draft to the open chat, or starts one. Callers choose the animation.
     func send() {
         guard !isStreaming else { return }
+        // What was said so far goes with the message; nothing arrives after it.
+        dictation.cancel()
         chatID = chats.send(text, attachments: attachments.take(), model: model, effort: effort,
                             agentDirectory: agentDirectory, agentPermissions: AgentMode.permissions, to: chatID)
         text = ""
@@ -68,6 +74,7 @@ final class ComposerSession {
 
     /// A blank composer for a new chat: the draft and agent mode go too.
     func startNewChat() {
+        dictation.cancel()
         pickerIsPresented = false
         chatID = nil
         agentDirectory = nil
@@ -79,6 +86,7 @@ final class ComposerSession {
     /// for, so it goes; the model follows the chat, or the last choice for a new chat.
     func open(_ id: UUID?) {
         guard id != chatID else { return }
+        dictation.cancel()
         pickerIsPresented = false
         chatID = id
         agentDirectory = nil
@@ -120,6 +128,46 @@ final class ComposerSession {
         if let directory = AgentMode.chooseDirectory() { agentDirectory = directory }
         afterModal()
         focusToken += 1
+    }
+
+    /// Starts dictating into the text, or stops and keeps the last words.
+    func toggleDictation() {
+        if dictation.isActive { dictation.finish() } else { startDictation() }
+        focusToken += 1
+    }
+
+    private func startDictation() {
+        dictation.start(text: { [weak self] in self?.text ?? "" }, write: { [weak self] in self?.text = $0 })
+    }
+
+    /// Return held: dictate, unless dictation is on already (⌘⇧D), and remember the text
+    /// to go back to if Return is let go too soon.
+    func beginHoldToTalk() {
+        guard !dictation.isActive else { return }
+        textBeforeHold = text
+        startDictation()
+    }
+
+    /// Return let go in time: returns once the last words are in, ready to send.
+    func endHoldToTalk() async {
+        textBeforeHold = nil
+        await finishDictation()
+    }
+
+    /// Return let go too soon: the recording goes and the text is back to what was typed.
+    func abandonHoldToTalk() {
+        guard let before = textBeforeHold else { return }
+        textBeforeHold = nil
+        dictation.cancel()
+        text = before
+    }
+
+    /// Stops dictating and returns once the last words are in the text. Still starting
+    /// (permission prompt, model download): nothing was heard, so it stops at once.
+    private func finishDictation() async {
+        guard dictation.state == .listening else { return dictation.cancel() }
+        dictation.finish()
+        await dictation.waitUntilDone()
     }
 
     func setPickerPresented(_ isPresented: Bool) {

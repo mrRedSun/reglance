@@ -22,6 +22,8 @@
     <string>26.0</string>
     <key>LSUIElement</key>
     <false/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>ReGlance turns what you say into text in the message field. Audio stays on this Mac.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

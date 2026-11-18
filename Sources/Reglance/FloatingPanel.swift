@@ -117,6 +117,7 @@ final class FloatingPanelController {
         case (.command, "o"): if let id = composer.chatID { openInWindow(id) }
         case (.command, "w"): hide()
         case ([.command, .shift], "a"): composer.toggleAgentMode()
+        case ([.command, .shift], "d"): composer.toggleDictation()
         default: return false
         }
         return true
@@ -171,6 +172,7 @@ final class FloatingPanelController {
 
     func hide() {
         if panel.isVisible { hiddenAt = now() }
+        composer.dictation.finish() // The microphone never stays on behind a hidden bar.
         presentationGeneration += 1
         panel.orderOut(nil)
         var transaction = Transaction()
@@ -253,7 +255,7 @@ private struct FloatingRootView: View {
                     PromptBarView(session: bar, docked: chat != nil, embedded: true,
                                   sendAnimation: ComposerMotion.layout(reduceMotion: reduceMotion))
                 }
-                .agentGlowAnchor()
+                .glowAnchor()
             }
             .frame(width: FloatingPanelController.contentWidth)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onGlassFrame($0) }
@@ -262,9 +264,10 @@ private struct FloatingRootView: View {
             // root spans the panel so the picker card has room above the bar.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
-        .agentGlow(isOn: bar.shownAgentDirectory != nil,
-                   color: (chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto)).color,
-                   cornerRadius: chat == nil ? ComposerShape.cornerRadius : ComposerShape.panelCornerRadius)
+        .edgeGlow(agent: bar.shownAgentDirectory == nil ? nil
+                      : (chat?.agentPermissions ?? (bypassesPermissions ? .bypass : .auto)).color,
+                  isListening: bar.dictation.state == .listening,
+                  cornerRadius: chat == nil ? ComposerShape.cornerRadius : ComposerShape.panelCornerRadius)
         .modelPickerOverlay(isPresented: bar.pickerIsPresented, model: $bar.model, effort: $bar.effort,
                             backend: bar.lockedBackend, reduceMotion: reduceMotion,
                             onDone: { bar.setPickerPresented(false) },

@@ -151,6 +151,9 @@ Your chats stay in `~/Library/Application Support/Reglance`. Delete that folder 
 | --- | --- |
 | ⌥Space | Show or hide the bar (change it in Settings) |
 | Return | Send |
+| Hold Return | Talk; let go after 2 seconds to send what you said |
+| ⌘⇧D | Start or stop dictation |
+| Hold ⌥ | Show tokens, context left and cost under replies |
 | ⇧Return or ⌥Return | New line |
 | Esc | Hide the bar |
 | ⌘N | New chat |
@@ -172,6 +175,15 @@ The floating bar reopens on your last chat. After it has been hidden for 5 minut
 ReGlance is a regular Mac app with a Dock icon, a chats window and a menu bar icon. Closing the chats window keeps the bar available; ⌘Q quits. Settings has three tabs. General: Open at login, the ⌥Space shortcut, when the bar starts a new chat, and personal preferences. Agent Mode: permissions. Providers: whether Claude Code, Codex and OpenCode are installed and signed in (with the full `claude doctor` report), a switch to turn Codex or OpenCode off, and which OpenCode models the picker shows.
 
 Under Personal Preferences, tell Claude about yourself and how you like answers: your language, expertise or tone. ReGlance adds them to the system prompt of every chat, agent chats included, starting with your next message.
+
+</details>
+
+<details>
+<summary>Dictation and reply stats</summary>
+
+Talk instead of typing: hold Return, or press ⌘⇧D or the mic button. Words appear in the composer as you speak, and the bar glows orange while the microphone is on. Let go of Return after 2 seconds to send; let go sooner and the recording is thrown away. A quick tap of Return sends as usual and never turns on the microphone. Speech is recognized on your Mac with Apple's dictation model, in your system language; the first use downloads the model, and audio never leaves your Mac.
+
+Hold ⌥ to see stats under each reply: tokens in and out, how much of the context window is left, cost, the share served from cache, and tokens per second. They show what the CLI reported, so some backends show fewer.
 
 </details>
 
