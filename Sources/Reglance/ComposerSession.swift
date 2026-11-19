@@ -47,6 +47,8 @@ final class ComposerSession {
 
     var chat: Chat? { chats.chat(chatID) }
     var isStreaming: Bool { chats.isStreaming(chatID) }
+    /// The reply streaming now; a steered message moves it further down the chat.
+    var streamingReplyID: UUID? { chats.streamingReply(in: chatID) }
     var canRegenerate: Bool { chatID.map(chats.canRegenerate) ?? false }
 
     /// The agent folder the composer shows: an open chat's own, or the one set up for the next chat.
@@ -56,9 +58,9 @@ final class ComposerSession {
     /// agent chat (agent mode runs on Claude Code only). Nil leaves every backend open.
     var lockedBackend: Backend? { chat?.backend ?? (agentDirectory != nil ? .claude : nil) }
 
-    /// Sends the draft to the open chat, or starts one. Callers choose the animation.
+    /// Sends the draft to the open chat, or starts one. While the chat replies, the draft
+    /// steers the reply (`ChatController.send`). Callers choose the animation.
     func send() {
-        guard !isStreaming else { return }
         // What was said so far goes with the message; nothing arrives after it.
         dictation.cancel()
         chatID = chats.send(text, attachments: attachments.take(), model: model, effort: effort,

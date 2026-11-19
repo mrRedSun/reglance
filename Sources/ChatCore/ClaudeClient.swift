@@ -1,6 +1,7 @@
 import Foundation
 
-/// Runs one `claude -p` subprocess per message and streams the reply.
+/// Runs one `claude -p` subprocess per turn and streams the reply. Messages steered into
+/// the turn go to the same process's stdin, which closes once the turn is done.
 /// In a chat, user settings, MCP servers and slash commands are disabled, and the only
 /// tools are web search and web fetch, so the CLI behaves as a chat model that can read
 /// the web. In an agent chat, the CLI runs as it normally would in the chosen folder,
@@ -28,6 +29,7 @@ public struct ClaudeClient: ChatStreamingClient {
         var args = [
             "-p",                            // the message comes from stdin (see `userMessageLine`)
             "--input-format", "stream-json", // so it can carry images and documents
+            "--replay-user-messages",        // echoes each message as the CLI takes it (steering)
         ]
         if let agent {
             // Claude Code's own system prompt, settings, CLAUDE.md, skills, hooks, plugins
@@ -154,16 +156,17 @@ public struct ClaudeClient: ChatStreamingClient {
 
     /// Cancelling the consuming task (or dropping the stream) terminates the subprocess.
     public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort = .automatic, resume sessionID: String?,
-                     agentDirectory: URL? = nil, permissions: AgentPermissions = .auto) -> AsyncThrowingStream<ChatEvent, Error> {
+                     agentDirectory: URL? = nil, permissions: AgentPermissions = .auto,
+                     steering: Steering = Steering()) -> AsyncThrowingStream<ChatEvent, Error> {
         .turn { continuation in
-            try await run(content: content, model: model, effort: effort, resume: sessionID,
-                          agentDirectory: agentDirectory, permissions: permissions, continuation: continuation)
+            try await run(content: content, model: model, effort: effort, resume: sessionID, agentDirectory: agentDirectory,
+                          permissions: permissions, steering: steering, continuation: continuation)
         }
     }
 
     private func run(
-        content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
-        agentDirectory: URL?, permissions: AgentPermissions, continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation
+        content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?, agentDirectory: URL?,
+        permissions: AgentPermissions, steering: Steering, continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation
     ) async throws {
         guard let executable = ClaudeLocator.executableURL() else { throw ChatError.cliNotFound(.claude) }
         let directory: URL
@@ -188,29 +191,68 @@ public struct ClaudeClient: ChatStreamingClient {
         process.standardInput = stdin
         try process.run()
 
-        // Write on another thread: a large image can exceed the pipe buffer, and the CLI
-        // starts writing to stdout before it has read all of stdin. EOF ends the turn.
         _ = Subprocess.ignoreBrokenPipe
-        let line = Self.userMessageLine(content)
-        let input = stdin.fileHandleForWriting
-        Thread.detachNewThread {
-            try? input.write(contentsOf: line)
-            try? input.close()
-        }
+        let input = MessageInput(stdin.fileHandleForWriting)
+        input.enqueue(Self.userMessageLine(content))
+        steering.open { content in await input.write(Self.userMessageLine(content)) }
 
         let handle = ProcessHandle(process)
         try await withTaskCancellationHandler {
             async let errorOutput = Subprocess.readAll(stderr.fileHandleForReading)
             var parser = StreamParser()
+            var inputIsOpen = true
             for await line in Subprocess.lines(of: stdout.fileHandleForReading) {
-                try parser.turn.deliver(parser.consume(String(decoding: line, as: UTF8.self)), to: continuation)
+                let events = parser.consume(String(decoding: line, as: UTF8.self))
+                steering.noteTaken(events)
+                try parser.turn.deliver(events, to: continuation)
+                // EOF ends the process after its last turn; a steered message that arrived
+                // after the result still runs first.
+                if inputIsOpen, parser.isFinished, await steering.close() {
+                    inputIsOpen = false
+                    input.close()
+                }
             }
+            if inputIsOpen { input.close() }
             let detail = await errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
             process.waitUntilExit()
             try parser.turn.finish(orElse: detail.isEmpty ? "claude exited with status \(process.terminationStatus)" : detail)
         } onCancel: {
             handle.terminate()
         }
+    }
+}
+
+/// The CLI's stdin. Messages are written in order on a queue of their own: a large image
+/// can exceed the pipe buffer, and the CLI starts writing to stdout before it has read it all.
+private final class MessageInput: @unchecked Sendable {
+    private let handle: FileHandle
+    private let queue = DispatchQueue(label: "app.reglance.claude-input")
+    private var isClosed = false
+
+    init(_ handle: FileHandle) { self.handle = handle }
+
+    func enqueue(_ line: Data) {
+        queue.async { [self] in _ = writeNow(line) }
+    }
+
+    /// False when stdin closed first or the CLI is gone.
+    func write(_ line: Data) async -> Bool {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in continuation.resume(returning: writeNow(line)) }
+        }
+    }
+
+    func close() {
+        queue.async { [self] in
+            guard !isClosed else { return }
+            isClosed = true
+            try? handle.close()
+        }
+    }
+
+    private func writeNow(_ line: Data) -> Bool {
+        guard !isClosed else { return false }
+        do { try handle.write(contentsOf: line); return true } catch { return false }
     }
 }
 
@@ -223,6 +265,8 @@ public struct StreamParser: Sendable {
     public var errorMessage: String? { turn.errorMessage }
     /// Tokens in the latest model call: its prompt (cached or not) plus its output.
     private var lastCallContext: Int?
+    /// Messages the CLI echoed as it took them: the turn's own, then steered ones.
+    private var replayedMessages = 0
 
     public init() {}
 
@@ -270,6 +314,11 @@ public struct StreamParser: Sendable {
             guard let id = object["session_id"] as? String else { return [] }
             sessionID = id
             return [.session(id: id)]
+
+        case "user" where object["isReplay"] as? Bool == true:
+            // Tool results are user messages too, but never replays.
+            replayedMessages += 1
+            return replayedMessages > 1 ? turn.steered() : []
 
         case "assistant":
             // Complete assistant messages; only tool calls matter here (text arrives as deltas).

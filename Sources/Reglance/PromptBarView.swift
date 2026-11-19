@@ -193,16 +193,17 @@ struct PromptBarView: View {
             // Keeps the pill and send button centred on the first line of a taller bar.
             .padding(.bottom, editorInset - 5)
 
-            SendButton(state: session.isStreaming ? .stop : (canSend ? .ready : .idle),
+            // While a reply streams, a draft steers it; an empty composer offers Stop.
+            SendButton(state: canSend ? (session.isStreaming ? .steer : .ready) : (session.isStreaming ? .stop : .idle),
                        tint: agentDirectory == nil ? .accentColor : agentPermissions.color) {
-                session.isStreaming ? session.stop() : submit()
+                canSend ? submit() : session.stop()
             }
             .padding(.bottom, editorInset - 5)
         }
     }
 
     private func submit() {
-        guard canSend, !session.isStreaming else { return }
+        guard canSend else { return }
         session.setPickerPresented(false)
         withAnimation(sendAnimation) { session.send() }
     }
@@ -357,11 +358,18 @@ private struct AgentToggle: View {
 }
 
 private struct SendButton: View {
-    enum State { case idle, ready, stop }
+    enum State { case idle, ready, steer, stop }
     let state: State
     var tint: Color = .accentColor
     let action: () -> Void
-    @Environment(\.colorScheme) private var colorScheme
+
+    private var help: String {
+        switch state {
+        case .stop: "Stop"
+        case .steer: "Send now, while it replies"
+        case .idle, .ready: "Send"
+        }
+    }
 
     var body: some View {
         Button(action: action) {
@@ -370,15 +378,16 @@ private struct SendButton: View {
                 case .idle:
                     Circle().fill(.primary.opacity(0.1))
                     Image(systemName: "arrow.up").foregroundStyle(.secondary)
-                case .ready:
+                case .ready, .steer:
                     Circle().fill(tint)
                         .shadow(color: tint.opacity(0.45), radius: 4, y: 2)
                     Image(systemName: "arrow.up").foregroundStyle(.white)
                 case .stop:
-                    // Inverted ink circle with a small rounded square, as in the design.
-                    Circle().fill(.primary)
+                    // Tinted like Send, so it reads as a live control rather than a disabled one.
+                    Circle().fill(tint)
+                        .shadow(color: tint.opacity(0.45), radius: 4, y: 2)
                     RoundedRectangle(cornerRadius: 2.5)
-                        .fill(colorScheme == .dark ? Color(white: 0.13) : .white)
+                        .fill(.white)
                         .frame(width: 10, height: 10)
                 }
             }
@@ -388,7 +397,7 @@ private struct SendButton: View {
         }
         .buttonStyle(.plain)
         .disabled(state == .idle)
-        .help(state == .stop ? "Stop" : "Send")
+        .help(help)
         .animation(.easeOut(duration: 0.15), value: state)
     }
 }

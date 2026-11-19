@@ -72,7 +72,7 @@ public struct BackendRouter: ChatStreamingClient {
     }))
 
     public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
-                     agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
+                     agentDirectory: URL?, permissions: AgentPermissions, steering: Steering) -> AsyncThrowingStream<ChatEvent, Error> {
         guard let client = clients[model.backend] else {
             return AsyncThrowingStream { $0.finish(throwing: ChatError.failed("\(model.backend.displayName) isn't available.")) }
         }
@@ -82,7 +82,7 @@ public struct BackendRouter: ChatStreamingClient {
             }
         }
         return client.send(content, model: model, effort: effort, resume: sessionID,
-                           agentDirectory: agentDirectory, permissions: permissions)
+                           agentDirectory: agentDirectory, permissions: permissions, steering: steering)
     }
 
     public func title(question: String, answer: String, model: ChatModel) async -> String? {

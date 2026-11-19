@@ -9,7 +9,7 @@ struct ConversationView: View {
     var body: some View {
         let composer = window.composer
         let chat = composer.chat
-        let isStreaming = composer.isStreaming
+        let streamingReplyID = composer.streamingReplyID
 
         VStack(spacing: 0) {
             ScrollView {
@@ -17,7 +17,7 @@ struct ConversationView: View {
                     ForEach(chat?.messages ?? []) { message in
                         let isLast = message.id == chat?.messages.last?.id
                         MessageView(
-                            message: message, isStreaming: isStreaming && isLast, isLast: isLast,
+                            message: message, isStreaming: message.id == streamingReplyID, isLast: isLast,
                             canRegenerate: composer.canRegenerate, onRegenerate: composer.regenerate
                         )
                     }

@@ -6,7 +6,7 @@ import SwiftUI
 /// messages, and the prompt bar docked at the bottom. The panel grows upward from the bar.
 struct ReplyView<Bar: View>: View {
     let chat: Chat?
-    let isStreaming: Bool
+    let streamingReplyID: UUID?
     let canRegenerate: Bool
     var onNewChat: () -> Void
     var onOpenInWindow: () -> Void
@@ -32,7 +32,7 @@ struct ReplyView<Bar: View>: View {
                         ForEach(chat.messages) { message in
                             MessageView(
                                 message: message,
-                                isStreaming: isStreaming && message.id == chat.messages.last?.id,
+                                isStreaming: message.id == streamingReplyID,
                                 isLast: message.id == chat.messages.last?.id,
                                 canRegenerate: canRegenerate,
                                 onRegenerate: onRegenerate

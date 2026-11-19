@@ -35,7 +35,7 @@ public struct DemoClient: ChatStreamingClient {
     }
 
     public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
-                     agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
+                     agentDirectory: URL?, permissions: AgentPermissions, steering: Steering) -> AsyncThrowingStream<ChatEvent, Error> {
         let question = content.compactMap { block -> String? in
             if case .text(let text) = block { text } else { nil }
         }.joined(separator: "\n")

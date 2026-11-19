@@ -212,24 +212,29 @@ public struct CodexClient: ChatStreamingClient {
     }
 
     public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort = .automatic, resume sessionID: String?,
-                     agentDirectory: URL? = nil, permissions: AgentPermissions = .auto) -> AsyncThrowingStream<ChatEvent, Error> {
+                     agentDirectory: URL? = nil, permissions: AgentPermissions = .auto,
+                     steering: Steering = Steering()) -> AsyncThrowingStream<ChatEvent, Error> {
         .turn { continuation in
-            try await run(content: content, model: model, effort: effort, resume: sessionID, continuation: continuation)
+            try await run(content: content, model: model, effort: effort, resume: sessionID, steering: steering,
+                          continuation: continuation)
         }
     }
 
+    static func containsPDF(_ content: [ContentBlock]) -> Bool {
+        content.contains { if case .document = $0 { true } else { false } }
+    }
+
     private func run(content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
-                     continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation) async throws {
+                     steering: Steering, continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation) async throws {
         guard let executable = CodexBackend.executableURL() else { throw ChatError.cliNotFound(.codex) }
-        if content.contains(where: { if case .document = $0 { true } else { false } }) {
+        if Self.containsPDF(content) {
             throw ChatError.failed("Codex chats can't read PDFs. Remove the PDF, or ask in a Claude chat.")
         }
-        let images = try Self.writeImages(content)
-        defer { for url in images.values { try? FileManager.default.removeItem(at: url) } }
-
         let server = try CodexServer(executable: executable, workingDirectory: workingDirectory)
         defer { server.terminate() }
         let turn = TurnHandle(server: server)
+        defer { turn.removeImages() }
+        let images = try turn.writeImages(content)
         try await withTaskCancellationHandler {
             try await server.handshake()
             var params = Self.threadParams(cwd: workingDirectory, model: model,
@@ -252,6 +257,7 @@ public struct CodexClient: ChatStreamingClient {
             if effort != .automatic { turnParams["effort"] = effort.rawValue }
             let started = try await server.request("turn/start", params: turnParams)
             turn.set(threadID: threadID, turnID: (started["turn"] as? [String: Any])?["id"] as? String)
+            steering.open { content in await turn.steer(content) }
 
             var parser = CodexStreamParser()
             for await notification in server.notifications {
@@ -261,8 +267,15 @@ public struct CodexClient: ChatStreamingClient {
                     server.decline(object)
                     continue
                 }
-                try parser.turn.deliver(parser.consume(object), to: continuation)
-                if parser.isFinished { break }
+                let events = parser.consume(object)
+                steering.noteTaken(events)
+                try parser.turn.deliver(events, to: continuation)
+                // A steer still on its way is refused once the turn is over, and goes with
+                // the next turn.
+                if parser.isFinished {
+                    _ = await steering.close()
+                    break
+                }
             }
             try parser.turn.finish(orElse: server.exitMessage)
         } onCancel: {
@@ -270,17 +283,47 @@ public struct CodexClient: ChatStreamingClient {
         }
     }
 
-    /// The running turn, so cancelling can interrupt it before the process ends.
+    /// The running turn, so cancelling can interrupt it before the process ends and
+    /// steered messages can join it.
     private final class TurnHandle: @unchecked Sendable {
         private let server: CodexServer
         private let lock = NSLock()
         private var ids: (thread: String, turn: String)?
+        private var images: [URL] = []
 
         init(server: CodexServer) { self.server = server }
 
         func set(threadID: String, turnID: String?) {
             guard let turnID else { return }
             lock.withLock { ids = (threadID, turnID) }
+        }
+
+        /// The turn's images as temp files, removed when it ends (`removeImages`).
+        func writeImages(_ content: [ContentBlock]) throws -> [Int: URL] {
+            let urls = try CodexClient.writeImages(content)
+            lock.withLock { images += urls.values }
+            return urls
+        }
+
+        func removeImages() {
+            for url in lock.withLock({ images }) { try? FileManager.default.removeItem(at: url) }
+        }
+
+        /// Adds a message to the running turn with `turn/steer`; Codex refuses it once the
+        /// turn is over. Its `userMessage` item carries our client id (`CodexStreamParser`).
+        func steer(_ content: [ContentBlock]) async -> Bool {
+            guard let ids = lock.withLock({ ids }), !CodexClient.containsPDF(content),
+                  let images = try? writeImages(content) else { return false }
+            do {
+                try await server.request("turn/steer", params: [
+                    "threadId": ids.thread, "expectedTurnId": ids.turn,
+                    "clientUserMessageId": CodexStreamParser.steerIDPrefix + UUID().uuidString,
+                    "input": CodexClient.userInput(content, images: images),
+                ])
+                return true
+            } catch {
+                return false
+            }
         }
 
         func interrupt() {
@@ -361,8 +404,10 @@ struct CodexStreamParser {
     /// Set when Codex starts something an ordinary chat must not do; the turn then stops.
     var violation: String? { turn.violation }
     private var messageCount = 0
-    /// The turn's usage so far: one `last` breakdown per model call, added up.
+    /// The reply's usage so far: one `last` breakdown per model call, added up.
     private var usage: TokenUsage?
+    /// Starts the client id of a steered message, which the turn's own message lacks.
+    static let steerIDPrefix = "reglance-steer-"
 
     mutating func consume(_ notification: [String: Any]) -> [ChatEvent] {
         guard let method = notification["method"] as? String else { return [] }
@@ -424,6 +469,11 @@ struct CodexStreamParser {
             return []
         }
         switch type {
+        case "userMessage":
+            guard (item["clientId"] as? String)?.hasPrefix(Self.steerIDPrefix) == true else { return [] }
+            messageCount = 0
+            usage = nil
+            return turn.steered()
         case "agentMessage":
             messageCount += 1
             // A later message starts a new paragraph.

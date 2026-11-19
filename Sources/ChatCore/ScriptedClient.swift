@@ -22,13 +22,18 @@ public final class ScriptedClient: ChatStreamingClient, @unchecked Sendable {
 
     private let reply: @Sendable (Request) -> AsyncThrowingStream<ChatEvent, Error>
     private let makeTitle: Title?
+    private let acceptsSteering: Bool
     private let lock = NSLock()
     private var recorded: [Request] = []
+    private var recordedSteers: [[ContentBlock]] = []
 
-    /// Answers every request with `reply(request)`.
-    public init(title: Title? = nil, reply: @escaping @Sendable (Request) -> AsyncThrowingStream<ChatEvent, Error>) {
+    /// Answers every request with `reply(request)`. With `acceptsSteering`, every turn takes
+    /// steered messages (recorded in `steers`); the script then yields `.steered` itself.
+    public init(title: Title? = nil, acceptsSteering: Bool = false,
+                reply: @escaping @Sendable (Request) -> AsyncThrowingStream<ChatEvent, Error>) {
         self.reply = reply
         self.makeTitle = title
+        self.acceptsSteering = acceptsSteering
     }
 
     /// Answers every request with the same events, then finishes.
@@ -43,8 +48,8 @@ public final class ScriptedClient: ChatStreamingClient, @unchecked Sendable {
 
     /// Answers the first request with `stream`, which the test drives itself; later requests
     /// get the same stream, already consumed.
-    public convenience init(stream: AsyncThrowingStream<ChatEvent, Error>) {
-        self.init { _ in stream }
+    public convenience init(stream: AsyncThrowingStream<ChatEvent, Error>, acceptsSteering: Bool = false) {
+        self.init(acceptsSteering: acceptsSteering) { _ in stream }
     }
 
     /// The events of a plain reply.
@@ -63,11 +68,24 @@ public final class ScriptedClient: ChatStreamingClient, @unchecked Sendable {
     /// Every `send` so far, in order.
     public var requests: [Request] { lock.withLock { recorded } }
 
+    /// The text of every message steered into a running turn, in order.
+    public var steers: [String] {
+        lock.withLock { recordedSteers }.map { content in
+            content.compactMap { if case .text(let text) = $0 { text } else { nil } }.joined(separator: "\n")
+        }
+    }
+
     public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
-                     agentDirectory: URL?, permissions: AgentPermissions) -> AsyncThrowingStream<ChatEvent, Error> {
+                     agentDirectory: URL?, permissions: AgentPermissions, steering: Steering) -> AsyncThrowingStream<ChatEvent, Error> {
         let request = Request(content: content, model: model, effort: effort, resume: sessionID,
                               agentDirectory: agentDirectory, permissions: permissions)
         lock.withLock { recorded.append(request) }
+        if acceptsSteering {
+            steering.open { [weak self] content in
+                self?.lock.withLock { self?.recordedSteers.append(content) }
+                return true
+            }
+        }
         return reply(request)
     }
 

@@ -8,7 +8,9 @@ The words this project uses for its own concepts. Use them in code, issues and d
 
 **Chat.** One conversation, saved as a JSON file with its messages, model, effort and session id (`Chat`). *Not to be confused with* the chats window, which lists them.
 
-**Turn.** One message sent and the reply it gets back. Each turn starts or resumes a backend session.
+**Turn.** One message sent and the reply it gets back. Each turn starts or resumes a backend session. Messages steered into a turn join it, each with a reply of its own.
+
+**Steering.** Sending a message while a reply streams: Return or the send button adds it to the running turn instead of waiting for the next one (`Steering`; Claude Code's stdin, Codex's `turn/steer`, an OpenCode prompt to the busy session). The reply splits where the CLI takes the message, which can be after the current model call ends. A message the turn ends without taking, finished or stopped, is sent as the next turn. The send button turns into Stop only while the composer is empty.
 
 **Reply.** The assistant message a turn produces: streamed text, thinking, tool steps and usage. Shown by `MessageView`.
 

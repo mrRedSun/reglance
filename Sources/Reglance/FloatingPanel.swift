@@ -246,7 +246,7 @@ private struct FloatingRootView: View {
         GlassEffectContainer {
             VStack(alignment: .trailing, spacing: 10) {
                 ReplyView(
-                    chat: chat, isStreaming: bar.isStreaming, canRegenerate: bar.canRegenerate,
+                    chat: chat, streamingReplyID: bar.streamingReplyID, canRegenerate: bar.canRegenerate,
                     onNewChat: { withAnimation(ComposerMotion.layout(reduceMotion: reduceMotion)) { bar.startNewChat() } },
                     onOpenInWindow: { if let chat { openInWindow(chat.id) } },
                     onClose: close,

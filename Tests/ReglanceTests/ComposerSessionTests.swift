@@ -75,6 +75,24 @@ struct ComposerSessionTests {
         #expect(chats.chat(id)?.messages.first?.text == "Hello")
     }
 
+    @Test func sendingWhileTheChatRepliesSteersTheReply() async {
+        let (stream, turn) = AsyncThrowingStream<ChatEvent, Error>.makeStream()
+        let client = ScriptedClient(stream: stream, acceptsSteering: true)
+        let chats = makeChats(client: client)
+        let composer = makeComposer(chats: chats)
+        composer.text = "Plan a trip"
+        composer.send()
+        #expect(composer.isStreaming)
+
+        composer.text = "Make it a weekend"
+        composer.send()
+        #expect(composer.text.isEmpty)
+        for _ in 0..<200 where client.steers.isEmpty { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(client.steers == ["Make it a weekend"])
+        #expect(client.requests.count == 1)
+        turn.finish()
+    }
+
     @Test func aNewAgentChatLocksTheModelToClaudeAndGivesItBack() {
         let composer = makeComposer()
         let codex = ChatModel(backend: .codex, id: "gpt-5.5")

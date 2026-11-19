@@ -286,18 +286,21 @@ public struct OpenCodeClient: ChatStreamingClient {
     }
 
     public func send(_ content: [ContentBlock], model: ChatModel, effort: Effort = .automatic, resume sessionID: String?,
-                     agentDirectory: URL? = nil, permissions: AgentPermissions = .auto) -> AsyncThrowingStream<ChatEvent, Error> {
+                     agentDirectory: URL? = nil, permissions: AgentPermissions = .auto,
+                     steering: Steering = Steering()) -> AsyncThrowingStream<ChatEvent, Error> {
         .turn { continuation in
-            try await run(content: content, model: model, effort: effort, resume: sessionID, continuation: continuation)
+            try await run(content: content, model: model, effort: effort, resume: sessionID, steering: steering,
+                          continuation: continuation)
         }
     }
 
     private func run(content: [ContentBlock], model: ChatModel, effort: Effort, resume sessionID: String?,
-                     continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation) async throws {
+                     steering: Steering, continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation) async throws {
         guard let executable = OpenCodeBackend.executableURL() else { throw ChatError.cliNotFound(.opencode) }
         let modelRef = try Self.modelRef(model, effort: effort)
-        let files = try Self.writeFiles(content)
-        defer { for file in files { try? FileManager.default.removeItem(at: file.url) } }
+        let files = TemporaryFiles()
+        defer { files.removeAll() }
+        let firstFiles = try files.write(content)
 
         let server = OpenCodeServer.shared
         let connection = try await server.beginTurn(executable: executable, systemPrompt: Self.systemPrompt(preferences: preferences()))
@@ -322,7 +325,12 @@ public struct OpenCodeClient: ChatStreamingClient {
         continuation.yield(.session(id: id))
 
         let events = try await connection.events()
-        try await connection.send("POST", "/api/session/\(id)/prompt", body: Self.promptBody(content, files: files))
+        try await connection.send("POST", "/api/session/\(id)/prompt", body: Self.promptBody(content, files: firstFiles))
+        // A prompt to a busy session steers it: OpenCode takes it at the next step.
+        steering.open { content in
+            guard let written = try? files.write(content) else { return false }
+            return (try? await connection.send("POST", "/api/session/\(id)/prompt", body: Self.promptBody(content, files: written))) != nil
+        }
 
         var parser = OpenCodeStreamParser(sessionID: id)
         parser.contextWindow = await Self.contextWindow(of: model, connection: connection)
@@ -332,8 +340,10 @@ public struct OpenCodeClient: ChatStreamingClient {
                 if parser.violation != nil {
                     _ = try? await connection.send("POST", "/api/session/\(id)/interrupt")
                 }
+                steering.noteTaken(chatEvents)
                 try parser.turn.deliver(chatEvents, to: continuation)
-                if parser.isFinished { break }
+                // A message steered just as the turn ended runs next, in the same stream.
+                if parser.isFinished, await steering.close() { break }
             }
         } onCancel: {
             Task { _ = try? await connection.send("POST", "/api/session/\(id)/interrupt") }
@@ -344,6 +354,22 @@ public struct OpenCodeClient: ChatStreamingClient {
     struct TemporaryFile {
         let url: URL
         let name: String
+    }
+
+    /// A turn's images and PDFs, steered messages' included, removed when it ends.
+    final class TemporaryFiles: @unchecked Sendable {
+        private let lock = NSLock()
+        private var urls: [URL] = []
+
+        func write(_ content: [ContentBlock]) throws -> [TemporaryFile] {
+            let files = try OpenCodeClient.writeFiles(content)
+            lock.withLock { urls += files.map(\.url) }
+            return files
+        }
+
+        func removeAll() {
+            for url in lock.withLock({ urls }) { try? FileManager.default.removeItem(at: url) }
+        }
     }
 
     /// Images and PDFs as temp files, passed by URI (OpenCode reads them itself).
@@ -425,8 +451,10 @@ struct OpenCodeStreamParser {
     private var toolNames: [String: String] = [:]
     /// From the model list; the events don't carry it.
     var contextWindow: Int?
-    /// The turn's usage so far, added up over its steps (model calls).
+    /// The reply's usage so far, added up over its steps (model calls).
     private var usage: TokenUsage?
+    /// Prompts OpenCode took from the session's inbox: the turn's own, then steered ones.
+    private var deliveredPrompts = 0
 
     static let allowedTools: [String: String] = ["webfetch": "WebFetch", "websearch": "WebSearch"]
 
@@ -448,6 +476,11 @@ struct OpenCodeStreamParser {
               let data = event["data"] as? [String: Any],
               data["sessionID"] as? String == sessionID else { return [] }
         switch type {
+        case "session.inbox.delivered":
+            deliveredPrompts += 1
+            guard deliveredPrompts > 1 else { return [] }
+            usage = nil
+            return turn.steered()
         case "session.step.ended":
             guard let tokens = data["tokens"] as? [String: Any] else { return [] }
             let cache = tokens["cache"] as? [String: Any] ?? [:]

@@ -10,15 +10,29 @@ public final class ChatController {
     public private(set) var chats: [Chat]
     public var activeChats: [Chat] { chats.filter { !$0.isArchived } }
     public var archivedChats: [Chat] { chats.filter(\.isArchived) }
+    /// The reply streaming in each chat that has one, by chat id.
+    public private(set) var streamingReplies: [UUID: UUID] = [:]
     /// Chats with a reply currently streaming.
-    public private(set) var streaming: Set<UUID> = []
+    public var streaming: Set<UUID> { Set(streamingReplies.keys) }
 
     @ObservationIgnored private let store: ChatStore
     @ObservationIgnored private let client: any ChatStreamingClient
     @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var titleTasks: [UUID: Task<Void, Never>] = [:]
-    /// A callback may mutate a chat only while it owns that chat's current reply.
-    @ObservationIgnored private var activeReplies: [UUID: UUID] = [:]
+    /// A callback may mutate a chat only while its turn is the chat's current one.
+    @ObservationIgnored private var activeTurns: [UUID: ActiveTurn] = [:]
+    /// Messages steered into a chat's running turn that its CLI hasn't taken yet, oldest
+    /// first. Whatever is left when the turn ends is sent as the next turn.
+    @ObservationIgnored private var pendingSteers: [UUID: [UUID]] = [:]
+
+    /// One turn streaming in a chat: the reply it writes into now (a steered message starts
+    /// a new one) and the channel for steered messages.
+    private struct ActiveTurn {
+        let id = UUID()
+        let firstReplyID: UUID
+        var replyID: UUID
+        let steering = Steering()
+    }
 
     public init(store: ChatStore = ChatStore(), client: any ChatStreamingClient = BackendRouter.live) {
         self.store = store
@@ -32,7 +46,12 @@ public final class ChatController {
     }
 
     public func isStreaming(_ id: UUID?) -> Bool {
-        id.map(streaming.contains) ?? false
+        id.map { streamingReplies[$0] != nil } ?? false
+    }
+
+    /// The reply streaming in `id` right now, if any.
+    public func streamingReply(in id: UUID?) -> UUID? {
+        id.flatMap { streamingReplies[$0] }
     }
 
     public func rename(_ chatID: UUID, to title: String) {
@@ -56,9 +75,10 @@ public final class ChatController {
     /// reply cannot recreate the JSON or interfere with another in-flight reply.
     public func delete(_ chatID: UUID) throws {
         guard chat(chatID) != nil else { return }
+        pendingSteers[chatID] = nil
         cancel(chatID)
-        if let replyID = activeReplies[chatID] {
-            finish(chatID: chatID, replyID: replyID, error: "Stopped")
+        if let turn = activeTurns[chatID] {
+            finish(chatID: chatID, turnID: turn.id, error: "Stopped")
         }
         try store.delete(chatID)
         chats.removeAll { $0.id == chatID }
@@ -73,16 +93,18 @@ public final class ChatController {
     /// Sends `text` and `attachments` to an existing chat, or starts a new chat when
     /// `chatID` is nil. Returns the chat id. `agentDirectory` and `agentPermissions` only
     /// apply to a new chat: an existing chat keeps the mode it was created with. An existing
-    /// chat also keeps its backend: a model from another backend is ignored.
+    /// chat also keeps its backend: a model from another backend is ignored. While the chat
+    /// is replying, the message steers the running turn instead (its model and effort stay).
     @discardableResult
     public func send(_ text: String, attachments: [AttachmentDraft] = [], model: ChatModel, effort: Effort = .automatic,
                      agentDirectory: URL? = nil, agentPermissions: AgentPermissions = .auto, to chatID: UUID?) -> UUID {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         var chat = chat(chatID) ?? Chat(firstMessage: prompt.isEmpty ? attachments.first?.name ?? "" : prompt, model: model,
                                         agentDirectory: agentDirectory, agentPermissions: agentPermissions)
-        guard !prompt.isEmpty || !attachments.isEmpty, !streaming.contains(chat.id) else { return chat.id }
+        guard !prompt.isEmpty || !attachments.isEmpty else { return chat.id }
+        let steers = activeTurns[chat.id] != nil
 
-        if model.backend == chat.backend {
+        if model.backend == chat.backend, !steers {
             chat.model = model
             chat.effort = effort
         }
@@ -95,8 +117,23 @@ public final class ChatController {
             }
         }
         chat.messages.append(message)
-        startReply(in: chat, to: message, resume: chat.sessionID)
+        if steers {
+            steer(message, into: chat)
+        } else {
+            startReply(in: chat, to: [message], resume: chat.sessionID)
+        }
         return chat.id
+    }
+
+    /// Shows `message` at once and hands it to the running turn. The reply splits when the
+    /// CLI takes it (`.steered`); if the turn ends first, `finish` sends it as the next turn.
+    private func steer(_ message: Message, into chat: Chat) {
+        guard let turn = activeTurns[chat.id] else { return }
+        put(chat)
+        pendingSteers[chat.id, default: []].append(message.id)
+        // A file that can't be read back goes with the next turn, which reports it.
+        guard let content = try? store.contentBlocks(for: message) else { return }
+        Task { _ = await turn.steering.steer(content) }
     }
 
     /// Where an attachment's copy lives.
@@ -108,13 +145,13 @@ public final class ChatController {
     /// session from before that turn must be known (chats saved before per-reply session
     /// ids existed don't have it).
     public func canRegenerate(_ chatID: UUID) -> Bool {
-        guard let chat = chat(chatID), !streaming.contains(chatID) else { return false }
+        guard let chat = chat(chatID), !isStreaming(chatID) else { return false }
         return regenerateSession(of: chat) != nil
     }
 
     /// Replaces the last reply with a new answer to the same question.
     public func regenerate(_ chatID: UUID, model: ChatModel? = nil, effort: Effort? = nil) {
-        guard var chat = chat(chatID), !streaming.contains(chatID),
+        guard var chat = chat(chatID), !isStreaming(chatID),
               let resume = regenerateSession(of: chat) else { return }
         // Like `send`, the chat stays on its own backend.
         if let model, model.backend == chat.backend {
@@ -124,7 +161,7 @@ public final class ChatController {
             chat.effort = effort
         }
         chat.messages.removeLast()
-        startReply(in: chat, to: chat.messages[chat.messages.count - 1], resume: resume)
+        startReply(in: chat, to: [chat.messages[chat.messages.count - 1]], resume: resume)
     }
 
     /// `.some(nil)` means the last turn was the first one, so the CLI starts a fresh session.
@@ -136,8 +173,9 @@ public final class ChatController {
         return previous.sessionID.map { .some($0) }
     }
 
-    /// Appends an empty assistant message to `chat` and streams the reply to `question` into it.
-    private func startReply(in chat: Chat, to question: Message, resume: String?) {
+    /// Appends an empty assistant message to `chat` and streams the reply to `questions` (one
+    /// message, or steered messages a turn ended without taking) into it.
+    private func startReply(in chat: Chat, to questions: [Message], resume: String?) {
         var chat = chat
         let model = chat.model
         let effort = chat.effort
@@ -146,24 +184,25 @@ public final class ChatController {
         let id = chat.id
         let replyID = chat.messages[chat.messages.count - 1].id
         put(chat)
-        streaming.insert(id)
-        activeReplies[id] = replyID
+        let turn = ActiveTurn(firstReplyID: replyID, replyID: replyID)
+        activeTurns[id] = turn
+        streamingReplies[id] = replyID
 
         let content: [ContentBlock]
         do {
-            content = try store.contentBlocks(for: question)
+            content = try questions.flatMap { try store.contentBlocks(for: $0) }
         } catch {
-            finish(chatID: id, replyID: replyID, error: error.localizedDescription)
+            finish(chatID: id, turnID: turn.id, error: error.localizedDescription)
             return
         }
         let stream = client.send(content, model: model, effort: effort, resume: resume, agentDirectory: chat.agentDirectory,
-                                 permissions: chat.agentPermissions)
+                                 permissions: chat.agentPermissions, steering: turn.steering)
         tasks[id] = Task { [weak self] in
             var failure: String?
             do {
                 for try await event in stream {
                     try Task.checkCancellation()
-                    self?.apply(event, chatID: id, replyID: replyID)
+                    self?.apply(event, chatID: id, turnID: turn.id)
                 }
                 if Task.isCancelled { failure = "Stopped" }
             } catch is CancellationError {
@@ -171,7 +210,7 @@ public final class ChatController {
             } catch {
                 failure = Task.isCancelled ? "Stopped" : error.localizedDescription
             }
-            self?.finish(chatID: id, replyID: replyID, error: failure)
+            self?.finish(chatID: id, turnID: turn.id, error: failure)
         }
     }
 
@@ -184,8 +223,10 @@ public final class ChatController {
         await tasks[chatID]?.value
     }
 
-    private func apply(_ event: ChatEvent, chatID: UUID, replyID: UUID) {
-        guard activeReplies[chatID] == replyID else { return }
+    private func apply(_ event: ChatEvent, chatID: UUID, turnID: UUID) {
+        guard let turn = activeTurns[chatID], turn.id == turnID else { return }
+        if event == .steered { return startSteeredReply(chatID: chatID) }
+        let replyID = turn.replyID
         update(chatID) { chat in
             guard let index = chat.messages.firstIndex(where: { $0.id == replyID }) else { return }
             switch event {
@@ -213,34 +254,62 @@ public final class ChatController {
                     chat.sessionID = sessionID
                     chat.messages[index].sessionID = sessionID
                 }
+            case .steered:
+                break
             }
         }
     }
 
-    private func finish(chatID: UUID, replyID: UUID, error: String?) {
-        guard activeReplies[chatID] == replyID else { return }
-        activeReplies[chatID] = nil
+    /// The CLI took the oldest steered message: the reply so far ends there and a new one,
+    /// placed right after that message, gets the rest of the turn.
+    private func startSteeredReply(chatID: UUID) {
+        guard var turn = activeTurns[chatID], var pending = pendingSteers[chatID], !pending.isEmpty,
+              var chat = chat(chatID) else { return }
+        let messageID = pending.removeFirst()
+        pendingSteers[chatID] = pending.isEmpty ? nil : pending
+        guard let index = chat.messages.firstIndex(where: { $0.id == messageID }) else { return }
+        // The earlier reply's session already holds the steered message and what follows, so
+        // regenerate can't go back to it: it keeps no session of its own.
+        if let previous = chat.messages.firstIndex(where: { $0.id == turn.replyID }) {
+            chat.messages[previous].sessionID = nil
+        }
+        let reply = Message(role: .assistant, text: "")
+        chat.messages.insert(reply, at: index + 1)
+        turn.replyID = reply.id
+        activeTurns[chatID] = turn
+        streamingReplies[chatID] = reply.id
+        put(chat)
+    }
+
+    private func finish(chatID: UUID, turnID: UUID, error: String?) {
+        guard let turn = activeTurns[chatID], turn.id == turnID else { return }
+        turn.steering.end()
+        activeTurns[chatID] = nil
         tasks[chatID] = nil
-        streaming.remove(chatID)
+        streamingReplies[chatID] = nil
         update(chatID) { chat in
             chat.updatedAt = Date()
-            if let error, let index = chat.messages.firstIndex(where: { $0.id == replyID }) {
+            if let error, let index = chat.messages.firstIndex(where: { $0.id == turn.replyID }) {
                 chat.messages[index].error = error
             }
         }
-        if let chat = chat(chatID) {
-            put(chat)
-            if error == nil { generateTitle(for: chat) }
+        guard let chat = chat(chatID) else { return }
+        put(chat)
+        if error == nil { generateTitle(for: chat, firstReplyID: turn.firstReplyID) }
+        // Steered messages the turn ended without taking (it finished, failed or was
+        // stopped first) are answered next, together.
+        if let pending = pendingSteers.removeValue(forKey: chatID) {
+            let questions = chat.messages.filter { pending.contains($0.id) }
+            if !questions.isEmpty { startReply(in: chat, to: questions, resume: chat.sessionID) }
         }
     }
 
-    /// After the first successful reply, replace the first-message title with a generated
-    /// one, unless the person renamed the chat in the meantime.
-    private func generateTitle(for chat: Chat) {
+    /// After the chat's first reply succeeds, replace the first-message title with a
+    /// generated one, unless the person renamed the chat in the meantime.
+    private func generateTitle(for chat: Chat, firstReplyID: UUID) {
         guard chat.titleIsAutomatic,
-              chat.messages.count(where: { $0.role == .assistant }) == 1,
-              let question = chat.messages.first(where: { $0.role == .user }),
-              let answer = chat.messages.last, answer.role == .assistant, !answer.text.isEmpty else { return }
+              let answer = chat.messages.first(where: { $0.role == .assistant }), answer.id == firstReplyID,
+              let question = chat.messages.first(where: { $0.role == .user }), !answer.text.isEmpty else { return }
         let id = chat.id
         let model = chat.model
         let client = client
